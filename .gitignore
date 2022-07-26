@@ -1,0 +1,10 @@
+*.bag
+*.tgz
+*.zip
+.ipynb_checkpoints
+.Trash-*
+data
+.DS_Store
+.vscode
+__pycache__
+*.mcap
