@@ -1,4 +1,4 @@
-# nuscenes2bag
+# nuscenes2mcap
 
 > _Convert [nuScenes](https://www.nuscenes.org/) data into [MCAP](https://mcap.dev/) format_
 
