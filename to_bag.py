@@ -607,25 +607,6 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         rosmsg_writer = RosmsgWriter(writer)
         writer.start(profile="ros1", library="nuscenes2bag")
 
-        event_schema_id = writer.register_schema(
-            name="Event",
-            encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "sample": {
-                        "type": "string",
-                    }
-                }
-            }).encode()
-        )
-
-        events_channel_id = writer.register_channel(
-            schema_id=event_schema_id,
-            topic="/events",
-            message_encoding="json",
-        )
-
         writer.add_metadata("scene-info", {
             "description": scene["description"],
             "name": scene["name"],
@@ -772,12 +753,6 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                         else:
                             msg = get_remove_imagemarkers(sensor_id, 'LIDAR_TOP', msg.header.stamp)
                             non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic + '/image_markers_lidar', msg))
-
-                        # Delete all image markers on non-keyframe camera images
-                        # msg = get_remove_imagemarkers(sensor_id, 'LIDAR_TOP', msg.header.stamp)
-                        # non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/image_markers_lidar', msg))
-                        # msg = get_remove_imagemarkers(sensor_id, 'annotations', msg.header.stamp)
-                        # non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/image_markers_annotations', msg))
 
                     next_sample_token = next_sample_data['next']
 
