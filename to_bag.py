@@ -27,58 +27,47 @@ from mcap.mcap0.writer import Writer
 from RosmsgWriter import RosmsgWriter
 import json
 
-class BitMap:
-
-    def __init__(self, dataroot: str, map_name: str, layer_name: str):
-        """
-        This class is used to render bitmap map layers. Currently these are:
-        - semantic_prior: The semantic prior (driveable surface and sidewalks) mask from nuScenes 1.0.
-        - basemap: The HD lidar basemap used for localization and as general context.
-
-        :param dataroot: Path of the nuScenes dataset.
-        :param map_name: Which map out of `singapore-onenorth`, `singepore-hollandvillage`, `singapore-queenstown` and
-            'boston-seaport'.
-        :param layer_name: The type of bitmap map, `semanitc_prior` or `basemap.
-        """
-        self.dataroot = dataroot
-        self.map_name = map_name
-        self.layer_name = layer_name
-
-        self.image = self.load_bitmap()
-
-    def load_bitmap(self) -> np.ndarray:
-        """
-        Load the specified bitmap.
-        """
-        # Load bitmap.
-        if self.layer_name == 'basemap':
-            map_path = os.path.join(self.dataroot, 'maps', 'basemap', self.map_name + '.png')
-        elif self.layer_name == 'semantic_prior':
-            map_hashes = {
-                'singapore-onenorth': '53992ee3023e5494b90c316c183be829',
-                'singapore-hollandvillage': '37819e65e09e5547b8a3ceaefba56bb2',
-                'singapore-queenstown': '93406b464a165eaba6d9de76ca09f5da',
-                'boston-seaport': '36092f0b03a857c6a3403e25b4b7aab3'
-            }
-            map_hash = map_hashes[self.map_name]
-            map_path = os.path.join(self.dataroot, 'maps', map_hash + '.png')
-        else:
-            raise Exception('Error: Invalid bitmap layer: %s' % self.layer_name)
-
-        # Convert to numpy.
-        if os.path.exists(map_path):
-            image = np.array(Image.open(map_path).convert('L'))
-        else:
-            raise Exception('Error: Cannot find %s %s! Please make sure that the map is correctly installed.'
-                            % (self.layer_name, map_path))
-
-        # Invert semantic prior colors.
-        if self.layer_name == 'semantic_prior':
-            image = image.max() - image
-
-        return image
-
 NUSCENES_VERSION = 'v1.0-mini'
+
+
+def load_bitmap(dataroot: str, map_name: str, layer_name: str) -> np.ndarray:
+    """
+    render bitmap map layers. Currently these are:
+    - semantic_prior: The semantic prior (driveable surface and sidewalks) mask from nuScenes 1.0.
+    - basemap: The HD lidar basemap used for localization and as general context.
+
+    :param dataroot: Path of the nuScenes dataset.
+    :param map_name: Which map out of `singapore-onenorth`, `singepore-hollandvillage`, `singapore-queenstown` and
+        'boston-seaport'.
+    :param layer_name: The type of bitmap map, `semanitc_prior` or `basemap.
+    """
+    # Load bitmap.
+    if layer_name == 'basemap':
+        map_path = os.path.join(dataroot, 'maps', 'basemap', map_name + '.png')
+    elif layer_name == 'semantic_prior':
+        map_hashes = {
+            'singapore-onenorth': '53992ee3023e5494b90c316c183be829',
+            'singapore-hollandvillage': '37819e65e09e5547b8a3ceaefba56bb2',
+            'singapore-queenstown': '93406b464a165eaba6d9de76ca09f5da',
+            'boston-seaport': '36092f0b03a857c6a3403e25b4b7aab3'
+        }
+        map_hash = map_hashes[map_name]
+        map_path = os.path.join(dataroot, 'maps', map_hash + '.png')
+    else:
+        raise Exception('Error: Invalid bitmap layer: %s' % layer_name)
+
+    # Convert to numpy.
+    if os.path.exists(map_path):
+        image = np.array(Image.open(map_path).convert('L'))
+    else:
+        raise Exception('Error: Cannot find %s %s! Please make sure that the map is correctly installed.'
+                        % (layer_name, map_path))
+
+    # Invert semantic prior colors.
+    if layer_name == 'semantic_prior':
+        image = image.max() - image
+
+    return image
 
 nusc = NuScenes(version=NUSCENES_VERSION, dataroot='data', verbose=True)
 nusc_can = NuScenesCanBus(dataroot='data')
@@ -495,13 +484,13 @@ def scene_bounding_box(scene, nusc_map, padding=75.0):
     box[3] = min(box[3] + padding, nusc_map.canvas_edge[1]) - box[1]
     return box
 
-def get_scene_map(scene, nusc_map, bitmap, stamp):
+def get_scene_map(scene, nusc_map, image, stamp):
     x, y, w, h = scene_bounding_box(scene, nusc_map)
     img_x = int(x * 10)
     img_y = int(y * 10)
     img_w = int(w * 10)
     img_h = int(h * 10)
-    img = np.flipud(bitmap.image)[img_y:img_y+img_h, img_x:img_x+img_w]
+    img = np.flipud(image)[img_y:img_y+img_h, img_x:img_x+img_w]
     img = (img * (100.0 / 255.0)).astype(np.int8)
 
     msg = OccupancyGrid()
@@ -600,8 +589,9 @@ def convert_scene(scene):
     print(f'Loading map "{location}"')
     nusc_map = NuScenesMap(dataroot='data', map_name=location)
     print(f'Loading bitmap "{nusc_map.map_name}"')
-    bitmap = BitMap(nusc_map.dataroot, nusc_map.map_name, 'basemap')
-    print(f'Loaded {bitmap.image.shape} bitmap')
+    image = load_bitmap(nusc_map.dataroot, nusc_map.map_name, 'basemap')
+    print(f'Loaded {image.shape} bitmap')
+    print(f"vehicle is {log['vehicle']}")
 
     cur_sample = nusc.get('sample', scene['first_sample_token'])
 
@@ -650,7 +640,7 @@ def convert_scene(scene):
     })
 
     stamp = get_time(nusc.get('ego_pose', nusc.get('sample_data', cur_sample['data']['LIDAR_TOP'])['ego_pose_token']))
-    map_msg = get_scene_map(scene, nusc_map, bitmap, stamp)
+    map_msg = get_scene_map(scene, nusc_map, image, stamp)
     centerlines_msg = get_centerline_markers(scene, nusc_map, stamp)
     rosmsg_writer.write_message('/map', map_msg, stamp)
     rosmsg_writer.write_message('/semantic_map', centerlines_msg, stamp)
