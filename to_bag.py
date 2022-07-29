@@ -788,7 +788,7 @@ def main():
 
     args = parser.parse_args()
 
-    nusc_can = NuScenesCanBus(dataroot='data')
+    nusc_can = NuScenesCanBus(dataroot=str(args.data_dir))
 
     for name in args.dataset_name:
         nusc = NuScenes(version=name, dataroot=str(args.data_dir), verbose=True)
