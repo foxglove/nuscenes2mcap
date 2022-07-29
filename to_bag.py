@@ -19,6 +19,7 @@ from visualization_msgs.msg import ImageMarker, Marker, MarkerArray
 from PIL import Image
 
 import math
+import argparse
 import numpy as np
 import os
 import rospy
@@ -26,8 +27,7 @@ import rospy
 from mcap.mcap0.writer import Writer
 from RosmsgWriter import RosmsgWriter
 import json
-
-NUSCENES_VERSION = 'v1.0-mini'
+from pathlib import Path
 
 
 def load_bitmap(dataroot: str, map_name: str, layer_name: str) -> np.ndarray:
@@ -68,11 +68,6 @@ def load_bitmap(dataroot: str, map_name: str, layer_name: str) -> np.ndarray:
         image = image.max() - image
 
     return image
-
-nusc = NuScenes(version=NUSCENES_VERSION, dataroot='data', verbose=True)
-nusc_can = NuScenesCanBus(dataroot='data')
-
-nusc.list_scenes()
 
 EARTH_RADIUS_METERS = 6.378137e6
 REFERENCE_COORDINATES = {
@@ -203,7 +198,7 @@ def turbomap(x):
           colormap[a][1] + (colormap[b][1] - colormap[a][1]) * f,
           colormap[a][2] + (colormap[b][2] - colormap[a][2]) * f]
 
-def get_categories(first_sample):
+def get_categories(nusc, first_sample):
     categories = set()
     sample_lidar = first_sample
     while sample_lidar is not None:
@@ -232,7 +227,7 @@ def get_camera(sample_data, frame_id):
         msg.data = jpg_file.read()
     return msg
 
-def get_camera_info(sample_data, frame_id):
+def get_camera_info(nusc, sample_data, frame_id):
     calib = nusc.get('calibrated_sensor', sample_data['calibrated_sensor_token'])
 
     msg_info = CameraInfo()
@@ -294,7 +289,7 @@ def get_lidar(sample_data, frame_id):
         msg.data = pc_file.read()
         return msg
 
-def get_lidar_imagemarkers(sample_lidar, sample_data, frame_id):
+def get_lidar_imagemarkers(nusc, sample_lidar, sample_data, frame_id):
     # lidar image markers in camera frame
     points, coloring, _ = nusc.explorer.map_pointcloud_to_image(
         pointsensor_token=sample_lidar['token'],
@@ -324,7 +319,7 @@ def get_remove_imagemarkers(frame_id, ns, stamp):
     marker.action = ImageMarker.REMOVE
     return marker
 
-def write_boxes_imagemarkers(rosmsg_writer, anns, sample_data, frame_id, topic_ns, stamp):
+def write_boxes_imagemarkers(nusc, rosmsg_writer, anns, sample_data, frame_id, topic_ns, stamp):
     # annotation boxes
     collector = Collector()
     _, boxes, camera_intrinsic = nusc.get_sample_data(sample_data['token'])
@@ -425,7 +420,7 @@ def get_basic_can_msg(name, diag_data):
 
     return (msg.header.stamp, '/diagnostics', msg)
 
-def get_tfs(sample):
+def get_tfs(nusc, sample):
     sample_lidar = nusc.get('sample_data', sample['data']['LIDAR_TOP'])
     ego_pose = nusc.get('ego_pose', sample_lidar['ego_pose_token'])
     stamp = get_time(ego_pose)
@@ -454,19 +449,19 @@ def get_tfs(sample):
 
     return transforms
 
-def get_tfmessage(sample):
+def get_tfmessage(nusc, sample):
     # get transforms for the current sample
     tf_array = TFMessage()
-    tf_array.transforms = get_tfs(sample)
+    tf_array.transforms = get_tfs(nusc, sample)
 
     # add transforms from the next sample to enable interpolation
     next_sample = nusc.get('sample', sample['next']) if sample.get('next') != '' else None
     if next_sample is not None:
-        tf_array.transforms += get_tfs(next_sample)
+        tf_array.transforms += get_tfs(nusc, next_sample)
 
     return tf_array
 
-def scene_bounding_box(scene, nusc_map, padding=75.0):
+def scene_bounding_box(nusc, scene, nusc_map, padding=75.0):
     box = [np.inf, np.inf, -np.inf, -np.inf]
     cur_sample = nusc.get('sample', scene['first_sample_token'])
     while cur_sample is not None:
@@ -484,8 +479,8 @@ def scene_bounding_box(scene, nusc_map, padding=75.0):
     box[3] = min(box[3] + padding, nusc_map.canvas_edge[1]) - box[1]
     return box
 
-def get_scene_map(scene, nusc_map, image, stamp):
-    x, y, w, h = scene_bounding_box(scene, nusc_map)
+def get_scene_map(nusc, scene, nusc_map, image, stamp):
+    x, y, w, h = scene_bounding_box(nusc, scene, nusc_map)
     img_x = int(x * 10)
     img_y = int(y * 10)
     img_w = int(w * 10)
@@ -512,9 +507,9 @@ def rectContains(rect, point):
     x, y = point[:2]
     return a <= x < a + c and b <= y < b + d
 
-def get_centerline_markers(scene, nusc_map, stamp):
+def get_centerline_markers(nusc, scene, nusc_map, stamp):
     pose_lists = nusc_map.discretize_centerlines(1)
-    bbox = scene_bounding_box(scene, nusc_map)
+    bbox = scene_bounding_box(nusc, scene, nusc_map)
 
     contained_pose_lists = []
     for pose_list in pose_lists:
@@ -547,7 +542,7 @@ def get_centerline_markers(scene, nusc_map, stamp):
 
     return msg
 
-def find_closest_lidar(lidar_start_token, stamp_nsec):
+def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
     candidates = []
 
     next_lidar_token = nusc.get('sample_data', lidar_start_token)['next']
@@ -582,7 +577,7 @@ class Collector:
         self.points.append((x2, y2))
         self.colors.append(color)
 
-def convert_scene(scene):
+def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepath):
     scene_name = scene['name']
     log = nusc.get('log', scene['log_token'])
     location = log['location']
@@ -604,199 +599,228 @@ def convert_scene(scene):
         [nusc_can.get_messages(scene_name, 'zoe_veh_info'), 0, lambda x: get_basic_can_msg('Zoe Vehicle Info', x)],
     ]
 
-    mcap_name = f'NuScenes-{NUSCENES_VERSION}-{scene_name}.mcap'
-    mcap_path = os.path.join(os.path.abspath(os.curdir), mcap_name)
-    print(f'Writing to {mcap_path}')
-    fp = open(mcap_path, "wb")
-    writer = Writer(fp)
-    rosmsg_writer = RosmsgWriter(writer)
-    writer.start(profile="ros1", library="nuscenes2bag")
+    filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    event_schema_id = writer.register_schema(
-        name="Event",
-        encoding="jsonschema",
-        data=json.dumps({
-            "type": "object",
-            "properties": {
-                "sample": {
-                    "type": "string",
+    with open(filepath, "wb") as fp:
+        print(f'Writing to {filepath}')
+        writer = Writer(fp)
+        rosmsg_writer = RosmsgWriter(writer)
+        writer.start(profile="ros1", library="nuscenes2bag")
+
+        event_schema_id = writer.register_schema(
+            name="Event",
+            encoding="jsonschema",
+            data=json.dumps({
+                "type": "object",
+                "properties": {
+                    "sample": {
+                        "type": "string",
+                    }
                 }
-            }
-        }).encode()
-    )
+            }).encode()
+        )
 
-    events_channel_id = writer.register_channel(
-        schema_id=event_schema_id,
-        topic="/events",
-        message_encoding="json",
-    )
+        events_channel_id = writer.register_channel(
+            schema_id=event_schema_id,
+            topic="/events",
+            message_encoding="json",
+        )
 
-    writer.add_metadata("scene-info", {
-        "description": scene["description"],
-        "name": scene["name"],
-        "location": location,
-        "vehicle": log["vehicle"],
-        "date_captured": log["date_captured"],
-    })
+        writer.add_metadata("scene-info", {
+            "description": scene["description"],
+            "name": scene["name"],
+            "location": location,
+            "vehicle": log["vehicle"],
+            "date_captured": log["date_captured"],
+        })
 
-    stamp = get_time(nusc.get('ego_pose', nusc.get('sample_data', cur_sample['data']['LIDAR_TOP'])['ego_pose_token']))
-    map_msg = get_scene_map(scene, nusc_map, image, stamp)
-    centerlines_msg = get_centerline_markers(scene, nusc_map, stamp)
-    rosmsg_writer.write_message('/map', map_msg, stamp)
-    rosmsg_writer.write_message('/semantic_map', centerlines_msg, stamp)
-    last_map_stamp = stamp
+        stamp = get_time(nusc.get('ego_pose', nusc.get('sample_data', cur_sample['data']['LIDAR_TOP'])['ego_pose_token']))
+        map_msg = get_scene_map(nusc, scene, nusc_map, image, stamp)
+        centerlines_msg = get_centerline_markers(nusc, scene, nusc_map, stamp)
+        rosmsg_writer.write_message('/map', map_msg, stamp)
+        rosmsg_writer.write_message('/semantic_map', centerlines_msg, stamp)
+        last_map_stamp = stamp
 
-    while cur_sample is not None:
-        sample_lidar = nusc.get('sample_data', cur_sample['data']['LIDAR_TOP'])
-        ego_pose = nusc.get('ego_pose', sample_lidar['ego_pose_token'])
-        stamp = get_time(ego_pose)
+        while cur_sample is not None:
+            sample_lidar = nusc.get('sample_data', cur_sample['data']['LIDAR_TOP'])
+            ego_pose = nusc.get('ego_pose', sample_lidar['ego_pose_token'])
+            stamp = get_time(ego_pose)
 
-        # write map topics every two seconds
-        if stamp - rospy.Duration(2.0) >= last_map_stamp:
-            map_msg.header.stamp = stamp
-            for marker in centerlines_msg.markers:
+            # write map topics every two seconds
+            if stamp - rospy.Duration(2.0) >= last_map_stamp:
+                map_msg.header.stamp = stamp
+                for marker in centerlines_msg.markers:
+                    marker.header.stamp = stamp
+                rosmsg_writer.write_message('/map', map_msg, stamp)
+                rosmsg_writer.write_message('/semantic_map', centerlines_msg, stamp)
+                last_map_stamp = stamp
+
+            # write CAN messages to /pose, /odom, and /diagnostics
+            can_msg_events = []
+            for i in range(len(can_parsers)):
+                (can_msgs, index, msg_func) = can_parsers[i]
+                while index < len(can_msgs) and get_utime(can_msgs[index]) < stamp:
+                    can_msg_events.append(msg_func(can_msgs[index]))
+                    index += 1
+                    can_parsers[i][1] = index
+            can_msg_events.sort(key = lambda x: x[0])
+            for (msg_stamp, topic, msg) in can_msg_events:
+                rosmsg_writer.write_message(topic, msg, msg_stamp)
+
+            # publish /tf
+            tf_array = get_tfmessage(nusc, cur_sample)
+            rosmsg_writer.write_message('/tf', tf_array, stamp)
+
+            # /driveable_area occupancy grid
+            write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp)
+
+            # iterate sensors
+            for (sensor_id, sample_token) in cur_sample['data'].items():
+                sample_data = nusc.get('sample_data', sample_token)
+                topic = '/' + sensor_id
+
+                # write the sensor data
+                if sample_data['sensor_modality'] == 'radar':
+                    msg = get_radar(sample_data, sensor_id)
+                    rosmsg_writer.write_message(topic, msg, stamp)
+                elif sample_data['sensor_modality'] == 'lidar':
+                    msg = get_lidar(sample_data, sensor_id)
+                    rosmsg_writer.write_message(topic, msg, stamp)
+                elif sample_data['sensor_modality'] == 'camera':
+                    msg = get_camera(sample_data, sensor_id)
+                    rosmsg_writer.write_message(topic + '/image_rect_compressed', msg, stamp)
+                    msg = get_camera_info(nusc, sample_data, sensor_id)
+                    rosmsg_writer.write_message(topic + '/camera_info', msg, stamp)
+
+                if sample_data['sensor_modality'] == 'camera':
+                    msg = get_lidar_imagemarkers(nusc, sample_lidar, sample_data, sensor_id)
+                    rosmsg_writer.write_message(topic + '/image_markers_lidar', msg, stamp)
+                    write_boxes_imagemarkers(nusc, rosmsg_writer, cur_sample['anns'], sample_data, sensor_id, topic, stamp)
+
+            # publish /pose
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = 'base_link'
+            pose_stamped.header.stamp = stamp
+            pose_stamped.pose.orientation.w = 1
+            rosmsg_writer.write_message('/pose', pose_stamped, stamp)
+
+            # publish /gps
+            coordinates = derive_latlon(location, ego_pose)
+            gps = NavSatFix()
+            gps.header.frame_id = 'base_link'
+            gps.header.stamp = stamp
+            gps.status.status = 1
+            gps.status.service = 1
+            gps.latitude = coordinates['latitude']
+            gps.longitude = coordinates['longitude']
+            gps.altitude = get_transform(ego_pose).translation.z
+            rosmsg_writer.write_message('/gps', gps, stamp)
+
+            # publish /markers/annotations
+            marker_array = MarkerArray()
+            for annotation_id in cur_sample['anns']:
+                ann = nusc.get('sample_annotation', annotation_id)
+                marker_id = int(ann['instance_token'][:4], 16)
+                c = np.array(nusc.explorer.get_color(ann['category_name'])) / 255.0
+
+                marker = Marker()
+                marker.header.frame_id = 'map'
                 marker.header.stamp = stamp
-            rosmsg_writer.write_message('/map', map_msg, stamp)
-            rosmsg_writer.write_message('/semantic_map', centerlines_msg, stamp)
-            last_map_stamp = stamp
+                marker.id = marker_id
+                marker.text = ann['instance_token'][:4]
+                marker.type = Marker.CUBE
+                marker.pose = get_pose(ann)
+                marker.frame_locked = True
+                marker.scale.x = ann['size'][1]
+                marker.scale.y = ann['size'][0]
+                marker.scale.z = ann['size'][2]
+                marker.color = make_color(c, 0.5)
+                marker_array.markers.append(marker)
+            rosmsg_writer.write_message('/markers/annotations', marker_array, stamp)
 
-        # write CAN messages to /pose, /odom, and /diagnostics
-        can_msg_events = []
-        for i in range(len(can_parsers)):
-            (can_msgs, index, msg_func) = can_parsers[i]
-            while index < len(can_msgs) and get_utime(can_msgs[index]) < stamp:
-                can_msg_events.append(msg_func(can_msgs[index]))
-                index += 1
-                can_parsers[i][1] = index
-        can_msg_events.sort(key = lambda x: x[0])
-        for (msg_stamp, topic, msg) in can_msg_events:
-            rosmsg_writer.write_message(topic, msg, stamp)
+            # collect all sensor frames after this sample but before the next sample
+            non_keyframe_sensor_msgs = []
+            for (sensor_id, sample_token) in cur_sample['data'].items():
+                topic = '/' + sensor_id
 
-        # publish /tf
-        tf_array = get_tfmessage(cur_sample)
-        rosmsg_writer.write_message('/tf', tf_array, stamp)
+                next_sample_token = nusc.get('sample_data', sample_token)['next']
+                while next_sample_token != '':
+                    next_sample_data = nusc.get('sample_data', next_sample_token)
+                    # if next_sample_data['is_key_frame'] or get_time(next_sample_data).to_nsec() > next_stamp.to_nsec():
+                    #     break
+                    if next_sample_data['is_key_frame']:
+                        break
 
-        # /driveable_area occupancy grid
-        write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp)
+                    if next_sample_data['sensor_modality'] == 'radar':
+                        msg = get_radar(next_sample_data, sensor_id)
+                        non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic, msg))
+                    elif next_sample_data['sensor_modality'] == 'lidar':
+                        msg = get_lidar(next_sample_data, sensor_id)
+                        non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic, msg))
+                    elif next_sample_data['sensor_modality'] == 'camera':
+                        msg = get_camera(next_sample_data, sensor_id)
+                        camera_stamp_nsec = msg.header.stamp.to_nsec()
+                        non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/image_rect_compressed', msg))
 
-        # iterate sensors
-        for (sensor_id, sample_token) in cur_sample['data'].items():
-            sample_data = nusc.get('sample_data', sample_token)
-            topic = '/' + sensor_id
+                        msg = get_camera_info(nusc, next_sample_data, sensor_id)
+                        non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/camera_info', msg))
 
-            # write the sensor data
-            if sample_data['sensor_modality'] == 'radar':
-                msg = get_radar(sample_data, sensor_id)
-                rosmsg_writer.write_message(topic, msg, stamp)
-            elif sample_data['sensor_modality'] == 'lidar':
-                msg = get_lidar(sample_data, sensor_id)
-                rosmsg_writer.write_message(topic, msg, stamp)
-            elif sample_data['sensor_modality'] == 'camera':
-                msg = get_camera(sample_data, sensor_id)
-                rosmsg_writer.write_message(topic + '/image_rect_compressed', msg, stamp)
-                msg = get_camera_info(sample_data, sensor_id)
-                rosmsg_writer.write_message(topic + '/camera_info', msg, stamp)
+                        closest_lidar = find_closest_lidar(nusc, cur_sample['data']['LIDAR_TOP'], camera_stamp_nsec)
+                        if closest_lidar is not None:
+                            msg = get_lidar_imagemarkers(nusc, closest_lidar, next_sample_data, sensor_id)
+                            non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic + '/image_markers_lidar', msg))
+                        else:
+                            msg = get_remove_imagemarkers(sensor_id, 'LIDAR_TOP', msg.header.stamp)
+                            non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic + '/image_markers_lidar', msg))
 
-            if sample_data['sensor_modality'] == 'camera':
-                msg = get_lidar_imagemarkers(sample_lidar, sample_data, sensor_id)
-                rosmsg_writer.write_message(topic + '/image_markers_lidar', msg, stamp)
-                write_boxes_imagemarkers(rosmsg_writer, cur_sample['anns'], sample_data, sensor_id, topic, stamp)
+                        # Delete all image markers on non-keyframe camera images
+                        # msg = get_remove_imagemarkers(sensor_id, 'LIDAR_TOP', msg.header.stamp)
+                        # non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/image_markers_lidar', msg))
+                        # msg = get_remove_imagemarkers(sensor_id, 'annotations', msg.header.stamp)
+                        # non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/image_markers_annotations', msg))
 
-        # publish /pose
-        pose_stamped = PoseStamped()
-        pose_stamped.header.frame_id = 'base_link'
-        pose_stamped.header.stamp = stamp
-        pose_stamped.pose.orientation.w = 1
-        rosmsg_writer.write_message('/pose', pose_stamped, stamp)
+                    next_sample_token = next_sample_data['next']
 
-        # publish /gps
-        coordinates = derive_latlon(location, ego_pose)
-        gps = NavSatFix()
-        gps.header.frame_id = 'base_link'
-        gps.header.stamp = stamp
-        gps.status.status = 1
-        gps.status.service = 1
-        gps.latitude = coordinates['latitude']
-        gps.longitude = coordinates['longitude']
-        gps.altitude = get_transform(ego_pose).translation.z
-        rosmsg_writer.write_message('/gps', gps, stamp)
+            # sort and publish the non-keyframe sensor msgs
+            non_keyframe_sensor_msgs.sort(key=lambda x: x[0])
+            for (_, topic, msg) in non_keyframe_sensor_msgs:
+                rosmsg_writer.write_message(topic, msg, msg.header.stamp)
 
-        # publish /markers/annotations
-        marker_array = MarkerArray()
-        for annotation_id in cur_sample['anns']:
-            ann = nusc.get('sample_annotation', annotation_id)
-            marker_id = int(ann['instance_token'][:4], 16)
-            c = np.array(nusc.explorer.get_color(ann['category_name'])) / 255.0
+            # move to the next sample
+            cur_sample = nusc.get('sample', cur_sample['next']) if cur_sample.get('next') != '' else None
 
-            marker = Marker()
-            marker.header.frame_id = 'map'
-            marker.header.stamp = stamp
-            marker.id = marker_id
-            marker.text = ann['instance_token'][:4]
-            marker.type = Marker.CUBE
-            marker.pose = get_pose(ann)
-            marker.frame_locked = True
-            marker.scale.x = ann['size'][1]
-            marker.scale.y = ann['size'][0]
-            marker.scale.z = ann['size'][2]
-            marker.color = make_color(c, 0.5)
-            marker_array.markers.append(marker)
-        rosmsg_writer.write_message('/markers/annotations', marker_array, stamp)
+        writer.finish()
+        print(f'Finished writing {filepath}')
 
-        # collect all sensor frames after this sample but before the next sample
-        non_keyframe_sensor_msgs = []
-        for (sensor_id, sample_token) in cur_sample['data'].items():
-            topic = '/' + sensor_id
 
-            next_sample_token = nusc.get('sample_data', sample_token)['next']
-            while next_sample_token != '':
-                next_sample_data = nusc.get('sample_data', next_sample_token)
-                # if next_sample_data['is_key_frame'] or get_time(next_sample_data).to_nsec() > next_stamp.to_nsec():
-                #     break
-                if next_sample_data['is_key_frame']:
-                    break
+def convert_all(output_dir: Path, name: str, nusc: NuScenes, nusc_can: NuScenesCanBus, selected_scenes):
+    nusc.list_scenes()
+    for scene in nusc.scene:
+        scene_name = scene["name"]
+        if len(selected_scenes) != 0 and scene_name not in selected_scenes:
+            break
+        mcap_name = f"NuScenes-{name}-{scene['name']}.mcap"
+        write_scene_to_mcap(nusc, nusc_can, scene, output_dir / mcap_name)
 
-                if next_sample_data['sensor_modality'] == 'radar':
-                    msg = get_radar(next_sample_data, sensor_id)
-                    non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic, msg))
-                elif next_sample_data['sensor_modality'] == 'lidar':
-                    msg = get_lidar(next_sample_data, sensor_id)
-                    non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic, msg))
-                elif next_sample_data['sensor_modality'] == 'camera':
-                    msg = get_camera(next_sample_data, sensor_id)
-                    camera_stamp_nsec = msg.header.stamp.to_nsec()
-                    non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/image_rect_compressed', msg))
 
-                    msg = get_camera_info(next_sample_data, sensor_id)
-                    non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/camera_info', msg))
+def main():
+    parser = argparse.ArgumentParser()
+    script_dir = Path(__file__).parent
+    parser.add_argument("--data-dir", "-d", default=script_dir / "data", help="path to nuscenes data directory")
+    parser.add_argument("--dataset-name", "-n", default=["v1.0-mini"], nargs="+", help="dataset to convert")
+    parser.add_argument("--output-dir", "-o", type=Path, default=script_dir / "output", help="path to write MCAP files into")
+    parser.add_argument("--scene", "-s", nargs="*", help="specific scene(s) to write")
 
-                    closest_lidar = find_closest_lidar(cur_sample['data']['LIDAR_TOP'], camera_stamp_nsec)
-                    if closest_lidar is not None:
-                        msg = get_lidar_imagemarkers(closest_lidar, next_sample_data, sensor_id)
-                        non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic + '/image_markers_lidar', msg))
-                    else:
-                        msg = get_remove_imagemarkers(sensor_id, 'LIDAR_TOP', msg.header.stamp)
-                        non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic + '/image_markers_lidar', msg))
+    args = parser.parse_args()
 
-                    # Delete all image markers on non-keyframe camera images
-                    # msg = get_remove_imagemarkers(sensor_id, 'LIDAR_TOP', msg.header.stamp)
-                    # non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/image_markers_lidar', msg))
-                    # msg = get_remove_imagemarkers(sensor_id, 'annotations', msg.header.stamp)
-                    # non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + '/image_markers_annotations', msg))
+    nusc_can = NuScenesCanBus(dataroot='data')
 
-                next_sample_token = next_sample_data['next']
+    for name in args.dataset_name:
+        nusc = NuScenes(version=name, dataroot=str(args.data_dir), verbose=True)
+        convert_all(args.output_dir, name, nusc, nusc_can, args.scene)
 
-        # sort and publish the non-keyframe sensor msgs
-        non_keyframe_sensor_msgs.sort(key=lambda x: x[0])
-        for (_, topic, msg) in non_keyframe_sensor_msgs:
-            rosmsg_writer.write_message(topic, msg, msg.header.stamp)
 
-        # move to the next sample
-        cur_sample = nusc.get('sample', cur_sample['next']) if cur_sample.get('next') != '' else None
 
-    writer.finish()
-    fp.close()
-    print(f'Finished writing {mcap_name}')
-
-convert_scene(nusc.scene[0])
+if __name__ == "__main__":
+    main()
 
