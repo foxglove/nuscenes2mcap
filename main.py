@@ -5,8 +5,13 @@ from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import CameraInfo, CompressedImage, NavSatFix, PointCloud2, PointField
 from typing import List, Tuple, Dict
 from visualization_msgs.msg import ImageMarker, Marker, MarkerArray
+from nav_msgs.msg import OccupancyGrid
 from std_msgs.msg import ColorRGBA
 from mcap.mcap0.writer import Writer
+from PIL import Image
+from pathlib import Path
+
+import numpy as np
 
 import RosmsgWriter
 import can
@@ -49,6 +54,63 @@ def get_pose(data):
 
     return p
 
+def turbomap(x):
+    with open(Path(__file__).parent / "turbo_colormap.json") as f:
+        colormap = json.load(f)
+    x = max(0.0, min(1.0, x))
+    a = int(x*255.0)
+    b = min(255, a + 1)
+    f = x*255.0 - a
+    return [colormap[a][0] + (colormap[b][0] - colormap[a][0]) * f,
+          colormap[a][1] + (colormap[b][1] - colormap[a][1]) * f,
+          colormap[a][2] + (colormap[b][2] - colormap[a][2]) * f]
+
+def get_lidar_imagemarkers(sample_lidar, sample_data, frame_id):
+    # lidar image markers in camera frame
+    points, coloring, _ = nusc.explorer.map_pointcloud_to_image(
+        pointsensor_token=sample_lidar['token'],
+        camera_token=sample_data['token'],
+        render_intensity=True)
+    points = points.transpose()
+    coloring = [turbomap(c) for c in coloring]
+
+    marker = ImageMarker()
+    marker.header.frame_id = frame_id
+    marker.header.stamp = get_time(sample_data)
+    marker.ns = 'LIDAR_TOP'
+    marker.id = 0
+    marker.type = ImageMarker.POINTS
+    marker.action = ImageMarker.ADD
+    marker.scale = 2.0
+    marker.points = [make_point2d(p) for p in points]
+    marker.outline_colors = [make_color(c) for c in coloring]
+    return marker
+
+
+def make_point2d(xy):
+    p = Point()
+    p.x = xy[0]
+    p.y = xy[1]
+    p.z = 0.0
+    return p
+
+def scene_bounding_box(scene, nusc_map, padding=75.0):
+    box = [np.inf, np.inf, -np.inf, -np.inf]
+    cur_sample = nusc.get('sample', scene['first_sample_token'])
+    while cur_sample is not None:
+        sample_lidar = nusc.get('sample_data', cur_sample['data']['LIDAR_TOP'])
+        ego_pose = nusc.get('ego_pose', sample_lidar['ego_pose_token'])
+        x, y = ego_pose['translation'][:2]
+        box[0] = min(box[0], x)
+        box[1] = min(box[1], y)
+        box[2] = max(box[2], x)
+        box[3] = max(box[3], y)
+        cur_sample = nusc.get('sample', cur_sample['next']) if cur_sample.get('next') != '' else None
+    box[0] = max(box[0] - padding, 0.0)
+    box[1] = max(box[1] - padding, 0.0)
+    box[2] = min(box[2] + padding, nusc_map.canvas_edge[0]) - box[0]
+    box[3] = min(box[3] + padding, nusc_map.canvas_edge[1]) - box[1]
+    return box
 
 def get_lidar(sample_data, frame_id):
     pc_filename = 'data/' + sample_data['filename']
@@ -142,6 +204,62 @@ def get_transform(data):
     t.rotation.z = data['rotation'][3]
 
     return t
+
+
+def get_scene_map(scene, nusc_map, image, stamp):
+    x, y, w, h = scene_bounding_box(scene, nusc_map)
+    img_x = int(x * 10)
+    img_y = int(y * 10)
+    img_w = int(w * 10)
+    img_h = int(h * 10)
+    img = np.flipud(image)[img_y:img_y+img_h, img_x:img_x+img_w]
+    img = (img * (100.0 / 255.0)).astype(np.int8)
+
+    msg = OccupancyGrid()
+    msg.header.frame_id = 'map'
+    msg.header.stamp = stamp
+    msg.info.map_load_time = stamp
+    msg.info.resolution = 0.1
+    msg.info.width = img_w
+    msg.info.height = img_h
+    msg.info.origin.position.x = x
+    msg.info.origin.position.y = y
+    msg.info.origin.orientation.w = 1
+    msg.data = img.flatten().tolist()
+
+    return msg
+
+def load_bitmap(data_root, map_name, layer_name) -> np.ndarray:
+    """
+    Load the specified bitmap.
+    """
+    # Load bitmap.
+    if layer_name == 'basemap':
+        map_path = os.path.join(data_root, 'maps', 'basemap', map_name + '.png')
+    elif layer_name == 'semantic_prior':
+        map_hashes = {
+            'singapore-onenorth': '53992ee3023e5494b90c316c183be829',
+            'singapore-hollandvillage': '37819e65e09e5547b8a3ceaefba56bb2',
+            'singapore-queenstown': '93406b464a165eaba6d9de76ca09f5da',
+            'boston-seaport': '36092f0b03a857c6a3403e25b4b7aab3'
+        }
+        map_hash = map_hashes[map_name]
+        map_path = os.path.join(data_root, 'maps', map_hash + '.png')
+    else:
+        raise Exception('Error: Invalid bitmap layer: %s' % layer_name)
+
+    # Convert to numpy.
+    if os.path.exists(map_path):
+        image = np.array(Image.open(map_path).convert('L'))
+    else:
+        raise Exception('Error: Cannot find %s %s! Please make sure that the map is correctly installed.'
+                        % (layer_name, map_path))
+
+    # Invert semantic prior colors.
+    if layer_name == 'semantic_prior':
+        image = image.max() - image
+
+    return image
 
 
 def get_time(data):
@@ -284,6 +402,10 @@ while cur_sample is not None:
 
                 messages.append([sensor_msg.header.stamp.to_nsec(
                 ), sensor_msg.header.stamp, "/tf", tf_array])
+                
+             if sample_data['sensor_modality'] == 'radar':
+                msg = get_radar(sample_data, sensor_id)
+                rosmsg_writer.write_message(topic, msg, stamp)
 
             print(stamp)
             print(sensor)
@@ -303,6 +425,7 @@ while cur_sample is not None:
         marker = Marker()
         marker.header.frame_id = 'map'
         marker.header.stamp = sample_stamp
+        marker.pose = get_pose(ann)
         marker.id = marker_id
         marker.text = ann['instance_token'][:4]
         marker.type = Marker.CUBE

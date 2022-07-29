@@ -1,4 +1,3 @@
-# %%
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from foxglove_msgs.msg import ImageMarkerArray
 from geometry_msgs.msg import Point, Pose, PoseStamped, Transform, TransformStamped
@@ -22,12 +21,12 @@ from PIL import Image
 import math
 import numpy as np
 import os
-import random
-import rosbag
 import rospy
-# import seaborn as sns
 
-# %%
+from mcap.mcap0.writer import Writer
+from RosmsgWriter import RosmsgWriter
+import json
+
 class BitMap:
 
     def __init__(self, dataroot: str, map_name: str, layer_name: str):
@@ -79,16 +78,13 @@ class BitMap:
 
         return image
 
-# %%
 NUSCENES_VERSION = 'v1.0-mini'
 
 nusc = NuScenes(version=NUSCENES_VERSION, dataroot='data', verbose=True)
 nusc_can = NuScenesCanBus(dataroot='data')
 
-# %%
 nusc.list_scenes()
 
-# %%
 EARTH_RADIUS_METERS = 6.378137e6
 REFERENCE_COORDINATES = {
     "boston-seaport": [42.336849169438615, -71.05785369873047],
@@ -339,7 +335,7 @@ def get_remove_imagemarkers(frame_id, ns, stamp):
     marker.action = ImageMarker.REMOVE
     return marker
 
-def write_boxes_imagemarkers(bag, anns, sample_data, frame_id, topic_ns, stamp):
+def write_boxes_imagemarkers(rosmsg_writer, anns, sample_data, frame_id, topic_ns, stamp):
     # annotation boxes
     collector = Collector()
     _, boxes, camera_intrinsic = nusc.get_sample_data(sample_data['token'])
@@ -361,9 +357,9 @@ def write_boxes_imagemarkers(bag, anns, sample_data, frame_id, topic_ns, stamp):
     msg = ImageMarkerArray()
     msg.markers = [marker]
 
-    bag.write(topic_ns + '/image_markers_annotations', msg, stamp)
+    rosmsg_writer.write_message(topic_ns + '/image_markers_annotations', msg, stamp)
 
-def write_occupancy_grid(bag, nusc_map, ego_pose, stamp):
+def write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp):
     translation = ego_pose['translation']
     rotation = Quaternion(ego_pose['rotation'])
     yaw = quaternion_yaw(rotation) / np.pi * 180
@@ -385,7 +381,7 @@ def write_occupancy_grid(bag, nusc_map, ego_pose, stamp):
     msg.info.origin.orientation.w = 1
     msg.data = drivable_area.flatten().tolist()
 
-    bag.write('/drivable_area', msg, stamp)
+    rosmsg_writer.write_message('/drivable_area', msg, stamp)
     
 
 def get_imu_msg(imu_data):
@@ -597,7 +593,6 @@ class Collector:
         self.points.append((x2, y2))
         self.colors.append(color)
 
-# %%
 def convert_scene(scene):
     scene_name = scene['name']
     log = nusc.get('log', scene['log_token'])
@@ -619,16 +614,46 @@ def convert_scene(scene):
         [nusc_can.get_messages(scene_name, 'zoe_veh_info'), 0, lambda x: get_basic_can_msg('Zoe Vehicle Info', x)],
     ]
 
-    bag_name = f'NuScenes-{NUSCENES_VERSION}-{scene_name}.bag'
-    bag_path = os.path.join(os.path.abspath(os.curdir), bag_name)
-    print(f'Writing to {bag_path}')
-    bag = rosbag.Bag(bag_path, 'w', compression='lz4')
+    mcap_name = f'NuScenes-{NUSCENES_VERSION}-{scene_name}.mcap'
+    mcap_path = os.path.join(os.path.abspath(os.curdir), mcap_name)
+    print(f'Writing to {mcap_path}')
+    fp = open(mcap_path, "wb")
+    writer = Writer(fp)
+    rosmsg_writer = RosmsgWriter(writer)
+    writer.start(profile="ros1", library="nuscenes2bag")
+
+    event_schema_id = writer.register_schema(
+        name="Event",
+        encoding="jsonschema",
+        data=json.dumps({
+            "type": "object",
+            "properties": {
+                "sample": {
+                    "type": "string",
+                }
+            }
+        }).encode()
+    )
+
+    events_channel_id = writer.register_channel(
+        schema_id=event_schema_id,
+        topic="/events",
+        message_encoding="json",
+    )
+
+    writer.add_metadata("scene-info", {
+        "description": scene["description"],
+        "name": scene["name"],
+        "location": location,
+        "vehicle": log["vehicle"],
+        "date_captured": log["date_captured"],
+    })
 
     stamp = get_time(nusc.get('ego_pose', nusc.get('sample_data', cur_sample['data']['LIDAR_TOP'])['ego_pose_token']))
     map_msg = get_scene_map(scene, nusc_map, bitmap, stamp)
     centerlines_msg = get_centerline_markers(scene, nusc_map, stamp)
-    bag.write('/map', map_msg, stamp)
-    bag.write('/semantic_map', centerlines_msg, stamp)
+    rosmsg_writer.write_message('/map', map_msg, stamp)
+    rosmsg_writer.write_message('/semantic_map', centerlines_msg, stamp)
     last_map_stamp = stamp
 
     while cur_sample is not None:
@@ -641,8 +666,8 @@ def convert_scene(scene):
             map_msg.header.stamp = stamp
             for marker in centerlines_msg.markers:
                 marker.header.stamp = stamp
-            bag.write('/map', map_msg, stamp)
-            bag.write('/semantic_map', centerlines_msg, stamp)
+            rosmsg_writer.write_message('/map', map_msg, stamp)
+            rosmsg_writer.write_message('/semantic_map', centerlines_msg, stamp)
             last_map_stamp = stamp
 
         # write CAN messages to /pose, /odom, and /diagnostics
@@ -655,14 +680,14 @@ def convert_scene(scene):
                 can_parsers[i][1] = index
         can_msg_events.sort(key = lambda x: x[0])
         for (msg_stamp, topic, msg) in can_msg_events:
-            bag.write(topic, msg, stamp)
+            rosmsg_writer.write_message(topic, msg, stamp)
 
         # publish /tf
         tf_array = get_tfmessage(cur_sample)
-        bag.write('/tf', tf_array, stamp)
+        rosmsg_writer.write_message('/tf', tf_array, stamp)
 
         # /driveable_area occupancy grid
-        write_occupancy_grid(bag, nusc_map, ego_pose, stamp)
+        write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp)
 
         # iterate sensors
         for (sensor_id, sample_token) in cur_sample['data'].items():
@@ -672,27 +697,27 @@ def convert_scene(scene):
             # write the sensor data
             if sample_data['sensor_modality'] == 'radar':
                 msg = get_radar(sample_data, sensor_id)
-                bag.write(topic, msg, stamp)
+                rosmsg_writer.write_message(topic, msg, stamp)
             elif sample_data['sensor_modality'] == 'lidar':
                 msg = get_lidar(sample_data, sensor_id)
-                bag.write(topic, msg, stamp)
+                rosmsg_writer.write_message(topic, msg, stamp)
             elif sample_data['sensor_modality'] == 'camera':
                 msg = get_camera(sample_data, sensor_id)
-                bag.write(topic + '/image_rect_compressed', msg, stamp)
+                rosmsg_writer.write_message(topic + '/image_rect_compressed', msg, stamp)
                 msg = get_camera_info(sample_data, sensor_id)
-                bag.write(topic + '/camera_info', msg, stamp)
+                rosmsg_writer.write_message(topic + '/camera_info', msg, stamp)
 
             if sample_data['sensor_modality'] == 'camera':
                 msg = get_lidar_imagemarkers(sample_lidar, sample_data, sensor_id)
-                bag.write(topic + '/image_markers_lidar', msg, stamp)
-                write_boxes_imagemarkers(bag, cur_sample['anns'], sample_data, sensor_id, topic, stamp)
+                rosmsg_writer.write_message(topic + '/image_markers_lidar', msg, stamp)
+                write_boxes_imagemarkers(rosmsg_writer, cur_sample['anns'], sample_data, sensor_id, topic, stamp)
 
         # publish /pose
         pose_stamped = PoseStamped()
         pose_stamped.header.frame_id = 'base_link'
         pose_stamped.header.stamp = stamp
         pose_stamped.pose.orientation.w = 1
-        bag.write('/pose', pose_stamped, stamp)
+        rosmsg_writer.write_message('/pose', pose_stamped, stamp)
 
         # publish /gps
         coordinates = derive_latlon(location, ego_pose)
@@ -704,7 +729,7 @@ def convert_scene(scene):
         gps.latitude = coordinates['latitude']
         gps.longitude = coordinates['longitude']
         gps.altitude = get_transform(ego_pose).translation.z
-        bag.write('/gps', gps, stamp)
+        rosmsg_writer.write_message('/gps', gps, stamp)
 
         # publish /markers/annotations
         marker_array = MarkerArray()
@@ -726,7 +751,7 @@ def convert_scene(scene):
             marker.scale.z = ann['size'][2]
             marker.color = make_color(c, 0.5)
             marker_array.markers.append(marker)
-        bag.write('/markers/annotations', marker_array, stamp)
+        rosmsg_writer.write_message('/markers/annotations', marker_array, stamp)
 
         # collect all sensor frames after this sample but before the next sample
         non_keyframe_sensor_msgs = []
@@ -774,18 +799,14 @@ def convert_scene(scene):
         # sort and publish the non-keyframe sensor msgs
         non_keyframe_sensor_msgs.sort(key=lambda x: x[0])
         for (_, topic, msg) in non_keyframe_sensor_msgs:
-            bag.write(topic, msg, msg.header.stamp)
+            rosmsg_writer.write_message(topic, msg, msg.header.stamp)
 
         # move to the next sample
         cur_sample = nusc.get('sample', cur_sample['next']) if cur_sample.get('next') != '' else None
 
-    bag.close()
-    print(f'Finished writing {bag_name}')
+    writer.finish()
+    fp.close()
+    print(f'Finished writing {mcap_name}')
 
-# %%
 convert_scene(nusc.scene[0])
-
-# for scene in nusc.scene:
-#     convert_scene(scene)
-
 

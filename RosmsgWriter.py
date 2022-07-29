@@ -1,5 +1,8 @@
 from typing import IO, Any, Dict, Optional, Union
+import time
 from io import BytesIO
+
+import rospy
 
 class RosmsgWriter:
     def __init__(self, output):
@@ -47,6 +50,8 @@ class RosmsgWriter:
         buffer = BytesIO()
         message.serialize(buffer)
         log_time = log_time or time.time_ns()
+        if isinstance(log_time, rospy.Time):
+            log_time = int((log_time.secs * int(1e9)) + log_time.nsecs)
         self.__writer.add_message(
             channel_id=channel_id,
             log_time=log_time or time.time_ns(),
