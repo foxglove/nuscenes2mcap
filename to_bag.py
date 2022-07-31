@@ -114,14 +114,13 @@ def derive_latlon(location: str, pose: Dict[str, float]):
     assert location in REFERENCE_COORDINATES.keys(), \
         f'Error: The given location: {location}, has no available reference.'
 
-    coordinates = []
     reference_lat, reference_lon = REFERENCE_COORDINATES[location]
-    ts = pose['timestamp']
+    ts = get_time(pose)
     x, y = pose['translation'][:2]
     bearing = math.atan(x / y)
     distance = math.sqrt(x**2 + y**2)
     lat, lon = get_coordinate(reference_lat, reference_lon, bearing, distance)
-    return {'latitude': lat, 'longitude': lon}
+    return lat, lon, ts
 
 def get_transform(data):
     t = Transform()
@@ -686,14 +685,14 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             rosmsg_writer.write_message('/pose', pose_stamped, stamp)
 
             # publish /gps
-            coordinates = derive_latlon(location, ego_pose)
+            lat, lon, ts = derive_latlon(location, ego_pose)
             gps = NavSatFix()
             gps.header.frame_id = 'base_link'
-            gps.header.stamp = stamp
+            gps.header.stamp = ts
             gps.status.status = 1
             gps.status.service = 1
-            gps.latitude = coordinates['latitude']
-            gps.longitude = coordinates['longitude']
+            gps.latitude = lat
+            gps.longitude = lon
             gps.altitude = get_transform(ego_pose).translation.z
             rosmsg_writer.write_message('/gps', gps, stamp)
 
