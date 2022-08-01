@@ -4,17 +4,10 @@ from pathlib import Path
 import math
 import json
 
-from sensor_msgs.msg import Imu
-from visualization_msgs.msg import MarkerArray
-from rospy import Time
-
 from mcap.mcap0.reader import make_reader
 from mcap.mcap0.writer import Writer
 
-SCHEMAS_OF_INTEREST = set([
-    "sensor_msgs/Imu",
-    "visualization_msgs/MarkerArray",
-])
+import events
 
 EVENT_SCHEMA = {
   "title": "foxglove.Event",
@@ -75,52 +68,27 @@ EVENT_SCHEMA = {
   }
 }
 
-ACCELERATION_THRESHOLD = 1.5
-PEDESTRIAN_THRESHOLD = 10
-
 def add_event_channel(writer):
     schema_id = writer.register_schema(name="foxglove.Event", encoding="jsonschema", data=json.dumps(EVENT_SCHEMA).encode("utf-8"))
     return writer.register_channel(topic="/events", message_encoding="json", schema_id=schema_id)
 
 
-def add_event(writer, channel_id, start_time, end_time, metadata):
-    if end_time < start_time:
-        raise RuntimeError("event has negative duration")
-    duration = end_time - start_time
+def add_event(writer, channel_id, event: events.Event):
+    timestamp_sec, timestamp_nsec = divmod(event.timestamp_ns, 1_000_000_000)
+    duration_sec, duration_nsec = divmod(event.duration_ns, 1_000_000_000)
     writer.add_message(
         channel_id=channel_id,
-        log_time=to_ns(end_time),
-        publish_time=to_ns(end_time),
+        log_time=event.timestamp_ns,
+        publish_time=event.timestamp_ns,
         data=json.dumps({
-            "timestamp": {"sec": start_time.secs, "nsec": start_time.nsecs},
-            "duration": {"sec": duration.secs, "nsec": duration.nsecs},
+            "timestamp": {"sec": timestamp_sec, "nsec": timestamp_nsec},
+            "duration": {"sec": duration_sec, "nsec": duration_nsec},
             "metadata": [
                 {"key": key, "value": value}
-                for key, value in metadata.items()
+                for key, value in event.metadata.items()
             ],
         }).encode("utf-8")
     )
-
-
-def get_topics_of_interest(summary):
-    schema_ids = set(
-        schema_id
-        for schema_id, schema in summary.schemas.items()
-        if schema.name in SCHEMAS_OF_INTEREST
-    )
-    return [
-        channel.topic
-        for channel in summary.channels.values()
-        if channel.schema_id in schema_ids
-    ]
-
-def to_ns(rospy_time):
-    return rospy_time.nsecs + (1_000_000_000 * rospy_time.secs)
-
-
-def to_rospy_time(timestamp_ns):
-    secs, nsecs = divmod(timestamp_ns, 1_000_000_000)
-    return Time(secs=secs, nsecs=nsecs)
 
 
 def annotate(infile, outfile):
@@ -129,68 +97,32 @@ def annotate(infile, outfile):
     writer.start()
     channel_id = add_event_channel(writer)
     summary = reader.get_summary()
-    topics = get_topics_of_interest(summary)
+    topics = ["/markers/annotations", "/imu"]
     if not topics:
         raise RuntimeError("found no topics to annotate, is this a NuScenes MCAP?")
 
-    jerk_start_time = None
-    max_acceleration = 0.0
+    annotator = events.Annotator()
+    scene_info = next(
+        (metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info"),
+        None
+    )
+    for event in annotator.on_mcap_start(summary, scene_info):
+        add_event(writer, channel_id, event)
 
-    ped_event_start_time = None
-    max_num_peds = 0
-
-    for metadata in reader.iter_metadata():
-        if metadata.name != "scene-info":
-            continue
-        tags = [tag.strip() for tag in metadata.metadata["description"].split(",")]
-        for tag in tags:
-            add_event(
-                writer,
-                channel_id,
-                to_rospy_time(summary.statistics.message_start_time),
-                to_rospy_time(summary.statistics.message_end_time),
-                {"description_tag": tag},
-            )
-
-    for schema, channel, message in reader.iter_messages(topics=topics):
+    for schema, _, message in reader.iter_messages(topics=topics):
         if schema.name == "sensor_msgs/Imu":
             imu = Imu()
             imu.deserialize(message.data)
-            longitudinal_acceleration = abs(imu.linear_acceleration.x)
-            if longitudinal_acceleration >= ACCELERATION_THRESHOLD:
-                if jerk_start_time is None:
-                    jerk_start_time = imu.header.stamp
-                max_acceleration = max(longitudinal_acceleration, max_acceleration)
-            if longitudinal_acceleration < ACCELERATION_THRESHOLD and jerk_start_time is not None:
-                add_event(writer, channel_id, jerk_start_time, imu.header.stamp, {
-                    "large_acceleration": str(max_acceleration),
-                })
-                jerk_start_time = None
-                max_acceleration = 0
+            for event in annotator.on_imu(imu):
+                add_event(writer, channel_id, event)
         if schema.name == "visualization_msgs/MarkerArray":
             marker_array = MarkerArray()
             marker_array.deserialize(message.data)
-            num_peds = sum(1 for marker in marker_array.markers if marker.ns.startswith("human.pedestrian"))
-            stamp = next((marker.header.stamp for marker in marker_array.markers), None)
-            if num_peds > PEDESTRIAN_THRESHOLD:
-                if ped_event_start_time is None:
-                    ped_event_start_time = stamp
-                max_num_peds = max(max_num_peds, num_peds)
-            if num_peds < PEDESTRIAN_THRESHOLD and ped_event_start_time is not None:
-                add_event(writer, channel_id, ped_event_start_time, stamp, {
-                    "many_pedestrians": str(max_num_peds),
-                })
-
-    if jerk_start_time is not None:
-        add_event(writer, channel_id, jerk_start_time, to_rospy_time(summary.statistics.message_end_time), {
-            "large_acceleration": str(max_acceleration)
-        })
-
-    if ped_event_start_time is not None:
-        add_event(writer, channel_id, ped_event_start_time, to_rospy_time(summary.statistics.message_end_time), {
-            "many_pedestrians": str(max_num_peds)
-        })
-
+            for event in annotator.on_marker_array(marker_array):
+                add_event(writer, channel_id, event)
+    
+    for event in annotator.on_mcap_end():
+        add_event(writer, channel_id, event)
     writer.finish()
 
 def main():
