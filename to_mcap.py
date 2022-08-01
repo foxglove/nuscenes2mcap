@@ -707,6 +707,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 marker.header.frame_id = 'map'
                 marker.header.stamp = stamp
                 marker.id = marker_id
+                marker.ns = ann["category_name"]
                 marker.text = ann['instance_token'][:4]
                 marker.type = Marker.CUBE
                 marker.pose = get_pose(ann)
