@@ -785,6 +785,7 @@ def main():
     parser.add_argument("--dataset-name", "-n", default=["v1.0-mini"], nargs="+", help="dataset to convert")
     parser.add_argument("--output-dir", "-o", type=Path, default=script_dir / "output", help="path to write MCAP files into")
     parser.add_argument("--scene", "-s", nargs="*", help="specific scene(s) to write")
+    parser.add_argument("--list-only", action="store_true", help="lists the scenes and exits")
 
     args = parser.parse_args()
 
@@ -792,8 +793,10 @@ def main():
 
     for name in args.dataset_name:
         nusc = NuScenes(version=name, dataroot=str(args.data_dir), verbose=True)
+        if args.list_only:
+            nusc.list_scenes()
+            return
         convert_all(args.output_dir, name, nusc, nusc_can, args.scene)
-
 
 
 if __name__ == "__main__":

@@ -76,7 +76,7 @@ EVENT_SCHEMA = {
 }
 
 ACCELERATION_THRESHOLD = 1.5
-PEDESTRIAN_THRESHOLD = 20
+PEDESTRIAN_THRESHOLD = 10
 
 def add_event_channel(writer):
     schema_id = writer.register_schema(name="foxglove.Event", encoding="jsonschema", data=json.dumps(EVENT_SCHEMA).encode("utf-8"))
@@ -118,9 +118,8 @@ def to_ns(rospy_time):
     return rospy_time.nsecs + (1_000_000_000 * rospy_time.secs)
 
 
-def last_timestamp(summary):
-    end_time = summary.statistics.message_end_time
-    secs, nsecs = divmod(end_time, 1_000_000_000)
+def to_rospy_time(timestamp_ns):
+    secs, nsecs = divmod(timestamp_ns, 1_000_000_000)
     return Time(secs=secs, nsecs=nsecs)
 
 
@@ -140,6 +139,19 @@ def annotate(infile, outfile):
     ped_event_start_time = None
     max_num_peds = 0
 
+    for metadata in reader.iter_metadata():
+        if metadata.name != "scene-info":
+            continue
+        tags = [tag.strip() for tag in metadata.metadata["description"].split(",")]
+        for tag in tags:
+            add_event(
+                writer,
+                channel_id,
+                to_rospy_time(summary.statistics.message_start_time),
+                to_rospy_time(summary.statistics.message_end_time),
+                {"description_tag": tag},
+            )
+
     for schema, channel, message in reader.iter_messages(topics=topics):
         if schema.name == "sensor_msgs/Imu":
             imu = Imu()
@@ -158,25 +170,24 @@ def annotate(infile, outfile):
         if schema.name == "visualization_msgs/MarkerArray":
             marker_array = MarkerArray()
             marker_array.deserialize(message.data)
-            ped_count = sum(1 for marker in marker_array.markers if marker.text.startswith("pedestrian"))
-            
-            if ped_count > PEDESTRIAN_THRESHOLD:
+            num_peds = sum(1 for marker in marker_array.markers if marker.ns.startswith("human.pedestrian"))
+            stamp = next((marker.header.stamp for marker in marker_array.markers), None)
+            if num_peds > PEDESTRIAN_THRESHOLD:
                 if ped_event_start_time is None:
-                    ped_event_start_time = marker_array.header.stamp
-                num_peds = sum(1 for marker in marker_array.markers if marker.ns.startswith("pedestrian"))
+                    ped_event_start_time = stamp
                 max_num_peds = max(max_num_peds, num_peds)
-            if ped_count < PEDESTRIAN_THRESHOLD and ped_event_start_time is not None:
-                add_event(writer, channel_id, ped_event_start_time, marker_array.header.stamp, {
+            if num_peds < PEDESTRIAN_THRESHOLD and ped_event_start_time is not None:
+                add_event(writer, channel_id, ped_event_start_time, stamp, {
                     "many_pedestrians": str(max_num_peds),
                 })
 
     if jerk_start_time is not None:
-        add_event(writer, channel_id, jerk_start_time, last_timestamp(summary), {
+        add_event(writer, channel_id, jerk_start_time, to_rospy_time(summary.statistics.message_end_time), {
             "large_acceleration": str(max_acceleration)
         })
 
     if ped_event_start_time is not None:
-        add_event(writer, channel_id, ped_event_start_time, last_timestamp(summary), {
+        add_event(writer, channel_id, ped_event_start_time, to_rospy_time(summary.statistics.message_end_time), {
             "many_pedestrians": str(max_num_peds)
         })
 
