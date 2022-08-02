@@ -560,6 +560,29 @@ def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
     return min(candidates, key=lambda x: x[0])[1]
 
 
+def get_car_marker(stamp):
+    marker = Marker()
+    marker.header.frame_id = 'base_link'
+    marker.header.stamp = stamp
+    marker.id = 99999999
+    marker.ns = "car"
+    marker.type = Marker.MESH_RESOURCE
+    marker.pose.position.x = 0
+    marker.pose.position.y = 0
+    marker.pose.position.z = 0
+    marker.pose.orientation.w = 1
+    marker.pose.orientation.x = 0
+    marker.pose.orientation.y = 0
+    marker.pose.orientation.z = 0
+    marker.frame_locked = True
+    marker.scale.x = 1
+    marker.scale.y = 1
+    marker.scale.z = 1
+    marker.mesh_resource = "https://assets.foxglove.dev/NuScenes_car_uncompressed.glb"
+    marker.mesh_use_embedded_materials = True
+    return marker
+
+
 class Collector:
     """
     Emulates the Matplotlib Axes class to collect line data.
@@ -717,6 +740,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 marker.scale.z = ann['size'][2]
                 marker.color = make_color(c, 0.5)
                 marker_array.markers.append(marker)
+            marker_array.markers.append(get_car_marker(stamp))
             rosmsg_writer.write_message('/markers/annotations', marker_array, stamp)
 
             # collect all sensor frames after this sample but before the next sample
@@ -773,8 +797,8 @@ def convert_all(output_dir: Path, name: str, nusc: NuScenes, nusc_can: NuScenesC
     for scene in nusc.scene:
         scene_name = scene["name"]
         if selected_scenes is not None and scene_name not in selected_scenes:
-            break
-        mcap_name = f"NuScenes-{name}-{scene['name']}.mcap"
+            continue
+        mcap_name = f"NuScenes-{name}-{scene_name}.mcap"
         write_scene_to_mcap(nusc, nusc_can, scene, output_dir / mcap_name)
 
 

@@ -32,9 +32,8 @@ class Annotator:
             Event(
                 timestamp_ns=summary.statistics.message_start_time,
                 duration_ns=(summary.statistics.message_end_time - summary.statistics.message_start_time),
-                metadata={"description_tag": tag},
+                metadata={tag: "true" for tag in tags},
             )
-            for tag in tags
         ]
 
     def on_imu(self, imu) -> List[Event]:
@@ -47,7 +46,7 @@ class Annotator:
             event = Event(
                 timestamp_ns=to_ns(self.jerk_start_time),
                 duration_ns=to_ns(imu.header.stamp - self.jerk_start_time),
-                metadata={"large_acceleration": str(self.max_acceleration)},
+                metadata={"large_acceleration": f"{self.max_acceleration:.2f}"},
             ) 
             self.jerk_start_time = None
             self.max_acceleration = 0
@@ -81,7 +80,7 @@ class Annotator:
             events.append(Event(
                 timestamp_ns=to_ns(self.jerk_start_time),
                 duration_ns=self.summary.statistics.message_end_time - to_ns(self.jerk_start_time),
-                metadata={"large_acceleration": str(self.max_acceleration)},
+                metadata={"large_acceleration": f"{self.max_acceleration:.2f}"},
             ))
 
         if self.ped_event_start_time is not None:

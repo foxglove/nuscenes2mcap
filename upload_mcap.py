@@ -35,13 +35,6 @@ def main():
         filename = Path(filepath).name
         print(f"checking for previous imports of {filename} ...")
         previous_uploads = client.get_imports(filename=filename)
-        if previous_uploads:
-            print(f"removing {len(previous_uploads)} previously-uploaded instance(s) of {filename}")
-        for upload in previous_uploads:
-            client.delete_import(
-                device_id=upload["device_id"],
-                import_id=upload["import_id"],
-            )
         with open(filepath, "rb") as f:
             reader = make_reader(f)
             scene_info = next(metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info")
@@ -62,6 +55,13 @@ def main():
                     callback=bar.update_to
                 )
         
+        if previous_uploads:
+            print(f"removing {len(previous_uploads)} previously-uploaded instance(s) of {filename}")
+        for upload in previous_uploads:
+            client.delete_import(
+                device_id=upload["device_id"],
+                import_id=upload["import_id"],
+            )
 
 if __name__ == "__main__":
     sys.exit(main())
