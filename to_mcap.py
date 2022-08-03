@@ -740,8 +740,12 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 marker.scale.z = ann['size'][2]
                 marker.color = make_color(c, 0.5)
                 marker_array.markers.append(marker)
-            marker_array.markers.append(get_car_marker(stamp))
             rosmsg_writer.write_message('/markers/annotations', marker_array, stamp)
+
+            # publish /markers/car
+            car_marker_array = MarkerArray()
+            car_marker_array.markers.append(get_car_marker(stamp))
+            rosmsg_writer.write_message('/markers/car', car_marker_array, stamp)
 
             # collect all sensor frames after this sample but before the next sample
             non_keyframe_sensor_msgs = []

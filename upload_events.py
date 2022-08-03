@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime
 import os
 import sys
+from pathlib import Path
 
 from foxglove_data_platform.client import Client
 from mcap.mcap0.reader import make_reader
@@ -30,6 +31,7 @@ def main():
     device_ids = {resp["name"]: resp["id"] for resp in client.get_devices()}
     
     for filename in args.files:
+        if Path(filename).is_dir:
         print(f"scanning {filename} for events...")
         annotator = Annotator()
         events = []
