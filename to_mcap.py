@@ -567,7 +567,7 @@ def get_car_marker(stamp):
     marker.id = 99999999
     marker.ns = "car"
     marker.type = Marker.MESH_RESOURCE
-    marker.pose.position.x = 0
+    marker.pose.position.x = 1
     marker.pose.position.y = 0
     marker.pose.position.z = 0
     marker.pose.orientation.w = 1
