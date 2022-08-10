@@ -1,7 +1,5 @@
 
 
-APT_PKG_LIST = docker.io unzip
-
 SCRATCH_DISK_DEVICE = /dev/nvme0n1
 SCRATCH_DISK_MOUNTPOINT = /media/scratch
 ZIP_DOWNLOAD_PATH = $(SCRATCH_DISK_MOUNTPOINT)/zip
@@ -28,13 +26,6 @@ FULL_DATASET_INPUTS = \
 	v1.0-trainval_meta.tgz
 
 CONVERTER_IMAGE_NAME = "mcap_converter"
-
-.PHONY: host-apt-install
-host-apt-install:
-	@echo Installing required apt packages
-	apt-get update
-	apt-get install -y --no-install-recommends $(APT_PKG_LIST)
-	touch $@
 
 .scratch-disk-format.stamp:
 	@echo Formatting the scratch disk
