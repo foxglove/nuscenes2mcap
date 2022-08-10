@@ -29,35 +29,46 @@ def main():
 
     client = Client(token=args.token)
     device_ids = {resp["name"]: resp["id"] for resp in client.get_devices()}
-    
-    for filename in args.files:
-        if Path(filename).is_dir:
-        print(f"scanning {filename} for events...")
+
+    filepaths = []
+    for name in args.files:
+        path = Path(name)
+        if path.is_dir():
+            filepaths.extend(path.glob("*.mcap"))
+        elif path.is_file():
+            filepaths.append(path)
+        else:
+            raise RuntimeError(f"path does not exist: {name}")
+
+    for filepath in filepaths:
+        print(f"scanning {filepath} for events...")
         annotator = Annotator()
         events = []
         device_id = None
         summary = None
-        with open(filename, "rb") as f:
+        with open(filepath, "rb") as f:
             reader = make_reader(f)
             summary = reader.get_summary()
             scene_info = next(
-                (metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info"),
+                (metadata for metadata in reader.iter_metadata()
+                 if metadata.name == "scene-info"),
                 None
             )
             try:
                 vehicle = scene_info.metadata["vehicle"]
                 device_id = device_ids[vehicle]
             except KeyError:
-                print(f"device ID not found for vehicle '{vehicle}' - has this MCAP been uploaded?", file=sys.stderr)
+                print(
+                    f"device ID not found for vehicle '{vehicle}' - has this MCAP been uploaded?", file=sys.stderr)
                 return 1
-        
+
             events.extend(annotator.on_mcap_start(summary, scene_info))
             for schema, _, message in reader.iter_messages(topics=["/markers/annotations", "/imu"]):
                 if schema.name == "sensor_msgs/Imu":
                     imu = Imu()
                     imu.deserialize(message.data)
                     events.extend(annotator.on_imu(imu))
-                        
+
                 if schema.name == "visualization_msgs/MarkerArray":
                     marker_array = MarkerArray()
                     marker_array.deserialize(message.data)
@@ -68,11 +79,13 @@ def main():
         # save existing events
         old_events = client.get_events(
             device_id=device_id,
-            start=datetime.fromtimestamp(float(summary.statistics.message_start_time) / 1e9),
-            end=datetime.fromtimestamp(float(summary.statistics.message_end_time) / 1e9),
+            start=datetime.fromtimestamp(
+                float(summary.statistics.message_start_time) / 1e9),
+            end=datetime.fromtimestamp(
+                float(summary.statistics.message_end_time) / 1e9),
         )
-        
-        print(f"uploading {len(events)} events for {filename} ...")
+
+        print(f"uploading {len(events)} events for {filepath} ...")
         for event in events:
             # create new events
             client.create_event(
@@ -81,9 +94,9 @@ def main():
                 duration=event.duration_ns,
                 metadata=event.metadata,
             )
-        
+
         # destroy old events once new events have been uploaded
-        print(f"deleting {len(old_events)} old events for {filename} ...")
+        print(f"deleting {len(old_events)} old events for {filepath} ...")
         for old_event in old_events:
             client.delete_event(event_id=old_event["id"])
         return 0

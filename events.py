@@ -70,7 +70,7 @@ class Annotator:
                 timestamp_ns=to_ns(self.ped_event_start_time),
                 duration_ns=to_ns(stamp - self.ped_event_start_time),
                 metadata={
-                    "category": "many_pedestrians"
+                    "category": "many_pedestrians",
                     "max": str(self.max_num_peds)
                 },
             ) 
@@ -99,7 +99,7 @@ class Annotator:
                 timestamp_ns=to_ns(self.ped_event_start_time),
                 duration_ns=self.summary.statistics.message_end_time - to_ns(self.ped_event_start_time),
                 metadata={
-                    "category": "many_pedestrians"
+                    "category": "many_pedestrians",
                     "max": str(self.max_num_peds),
                 },
             ))

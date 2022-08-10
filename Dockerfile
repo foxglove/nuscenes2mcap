@@ -6,3 +6,7 @@ RUN rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install numpy==1.19 nuscenes-devkit mcap foxglove-data-platform tqdm requests
 RUN pip3 install git+https://github.com/DanielPollithy/pypcd.git
+
+COPY . /work
+
+WORKDIR /work

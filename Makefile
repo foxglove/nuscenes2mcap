@@ -2,13 +2,13 @@
 
 APT_PKG_LIST = docker.io unzip
 
-SCRATCH_DISK_DEVICE = "/dev/nvme0n1"
-SCRATCH_DISK_MOUNTPOINT = "/media/scratch"
-ZIP_DOWNLOAD_PATH = "$(SCRATCH_DISK_MOUNTPOINT)/zip"
-DATASET_PATH = "$(SCRATCH_DISK_MOUNTPOINT)/dataset"
-OUTPUT_PATH = "$(SCRATCH_DISK_MOUNTPOINT)/output"
+SCRATCH_DISK_DEVICE = /dev/nvme0n1
+SCRATCH_DISK_MOUNTPOINT = /media/scratch
+ZIP_DOWNLOAD_PATH = $(SCRATCH_DISK_MOUNTPOINT)/zip
+DATASET_PATH = $(SCRATCH_DISK_MOUNTPOINT)/dataset
+OUTPUT_PATH = $(SCRATCH_DISK_MOUNTPOINT)/output
 
-INPUT_BUCKET = "gs://nuscenes-all/full/s3.amazonaws.com/data.nuscenes.org/public/v1.0"
+INPUT_BUCKET = gs://nuscenes-all/full/s3.amazonaws.com/data.nuscenes.org/public/v1.0
 
 AUX_INPUTS = can_bus.zip nuScenes-map-expansion-v1.3.zip
 
@@ -29,29 +29,30 @@ FULL_DATASET_INPUTS = \
 
 CONVERTER_IMAGE_NAME = "mcap_converter"
 
-.host-apt-install.stamp:
-	@echo "Installing required apt packages"
+.PHONY: host-apt-install
+host-apt-install:
+	@echo Installing required apt packages
 	apt-get update
 	apt-get install -y --no-install-recommends $(APT_PKG_LIST)
 	touch $@
 
-.scratch-disk-format.stamp: .host-apt-install.stamp
-	@echo "Formatting the scratch disk"
+.scratch-disk-format.stamp:
+	@echo Formatting the scratch disk
 	mkfs.ext4 -F $(SCRATCH_DISK_DEVICE)
 	touch $@
 
 .mount-scratch-disk.stamp: .scratch-disk-format.stamp
-	@echo "mounting the scratch disk"
+	@echo mounting the scratch disk
 	mkdir -p $(SCRATCH_DISK_MOUNTPOINT)
 	chmod a+rwx $(SCRATCH_DISK_MOUNTPOINT)
 	mount $(SCRATCH_DISK_DEVICE) $(SCRATCH_DISK_MOUNTPOINT)
 	touch $@
 
 .download-aux-inputs.stamp: .mount-scratch-disk.stamp
-	@echo "downloading CAN and map data"
+	@echo downloading CAN and map data
 	mkdir -p $(ZIP_DOWNLOAD_PATH) $(DATASET_PATH)
 	for zip in $(AUX_INPUTS); do \
-		gsutil cp "$(INPUT_BUCKET)/$${zip}" "$(ZIP_DOWNLOAD_PATH)/$${zip} \
+		gsutil cp "$(INPUT_BUCKET)/$${zip}" "$(ZIP_DOWNLOAD_PATH)/$${zip}" \
 		unzip "$(ZIP_DOWNLOAD_PATH)/$${zip}" -d $(DATASET_PATH) \
 	done
 	touch $@
@@ -101,7 +102,7 @@ convert-full-dataset: converter-image download-full-dataset
 		--output-dir /output
 
 .PHONY: upload-mcaps
-upload-mcaps: 
+upload-mcaps: converter-image
 	docker run -t --rm \
 		-v $(OUTPUT_PATH):/output \
 		-e FOXGLOVE_CONSOLE_TOKEN \
@@ -109,7 +110,7 @@ upload-mcaps:
 		python3 upload_mcap.py --skip-existing /output
 
 .PHONY: upload-events
-upload-events: 
+upload-events: converter-image
 	docker run -t --rm \
 		-v $(OUTPUT_PATH):/output \
 		-e FOXGLOVE_CONSOLE_TOKEN \
@@ -117,7 +118,7 @@ upload-events:
 		python3 upload_events.py /output
 	
 .PHONY: converter-image
-converter-image: .host-apt-install.stamp
+converter-image:
 	docker build -t $(CONVERTER_IMAGE_NAME) .
 
 .PHONY: clean
