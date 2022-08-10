@@ -36,15 +36,15 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 	@echo mounting the scratch disk
 	sudo mkdir -p $(SCRATCH_DISK_MOUNTPOINT)
 	sudo mount $(SCRATCH_DISK_DEVICE) $(SCRATCH_DISK_MOUNTPOINT)
-	sudo chmod a+rwx $(SCRATCH_DISK_MOUNTPOINT)
+	sudo chmod a+rwc $(SCRATCH_DISK_MOUNTPOINT)
 	touch $@
 
 .download-aux-inputs.stamp: .mount-scratch-disk.stamp
 	@echo downloading CAN and map data
 	mkdir -p $(ZIP_DOWNLOAD_PATH) $(DATASET_PATH)
 	for zip in $(AUX_INPUTS); do \
-		gsutil cp "$(INPUT_BUCKET)/$${zip}" "$(ZIP_DOWNLOAD_PATH)/$${zip}" \
-		unzip "$(ZIP_DOWNLOAD_PATH)/$${zip}" -d $(DATASET_PATH) \
+		gsutil cp "$(INPUT_BUCKET)/$${zip}" "$(ZIP_DOWNLOAD_PATH)/$${zip}"; \
+		unzip "$(ZIP_DOWNLOAD_PATH)/$${zip}" -d $(DATASET_PATH); \
 	done
 	touch $@
 
@@ -52,7 +52,7 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 	@echo "downloading mini dataset"
 	mkdir -p $(DATASET_PATH)
 	for tgz in $(MINI_DATASET_INPUTS); do \
-		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | tar -xC $(DATASET_PATH) \
+		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | tar -xC $(DATASET_PATH); \
 	done
 	touch $@
 
@@ -63,7 +63,7 @@ download-mini-dataset: .download-mini-dataset.stamp
 	@echo "downloading full dataset"
 	mkdir -p $(DATASET_PATH)
 	for tgz in $(FULL_DATASET_INPUTS); do \
-		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | tar -xC $(DATASET_PATH) \
+		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | tar -xC $(DATASET_PATH); \
 	done
 	touch $@
 
