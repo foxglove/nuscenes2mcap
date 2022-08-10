@@ -29,14 +29,14 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 
 .scratch-disk-format.stamp:
 	@echo Formatting the scratch disk
-	mkfs.ext4 -F $(SCRATCH_DISK_DEVICE)
+	sudo mkfs.ext4 -F $(SCRATCH_DISK_DEVICE)
 	touch $@
 
 .mount-scratch-disk.stamp: .scratch-disk-format.stamp
 	@echo mounting the scratch disk
-	mkdir -p $(SCRATCH_DISK_MOUNTPOINT)
-	chmod a+rwx $(SCRATCH_DISK_MOUNTPOINT)
-	mount $(SCRATCH_DISK_DEVICE) $(SCRATCH_DISK_MOUNTPOINT)
+	sudo mkdir -p $(SCRATCH_DISK_MOUNTPOINT)
+	sudo chmod a+rwx $(SCRATCH_DISK_MOUNTPOINT)
+	sudo mount $(SCRATCH_DISK_DEVICE) $(SCRATCH_DISK_MOUNTPOINT)
 	touch $@
 
 .download-aux-inputs.stamp: .mount-scratch-disk.stamp
