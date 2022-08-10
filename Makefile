@@ -35,8 +35,8 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 .mount-scratch-disk.stamp: .scratch-disk-format.stamp
 	@echo mounting the scratch disk
 	sudo mkdir -p $(SCRATCH_DISK_MOUNTPOINT)
-	sudo chmod a+rwx $(SCRATCH_DISK_MOUNTPOINT)
 	sudo mount $(SCRATCH_DISK_DEVICE) $(SCRATCH_DISK_MOUNTPOINT)
+	sudo chmod a+rwx $(SCRATCH_DISK_MOUNTPOINT)
 	touch $@
 
 .download-aux-inputs.stamp: .mount-scratch-disk.stamp
