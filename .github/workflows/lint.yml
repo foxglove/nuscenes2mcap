@@ -1,0 +1,29 @@
+name: Lint
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: ["*"]
+
+jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          lfs: true
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.7
+          cache: pipenv
+      - uses: satackey/action-docker-layer-caching@v0.0.11
+        continue-on-error: true
+      - run: pip install pipenv
+      - run: pipenv install --deploy
+      - run: pipenv run python -m flake8
+      - run: pipenv run black --check --diff --color
+      - run: pipenv run pyright
