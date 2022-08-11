@@ -23,7 +23,6 @@ jobs:
       - uses: satackey/action-docker-layer-caching@v0.0.11
         continue-on-error: true
       - run: pip install pipenv
-      - run: pipenv install --deploy
+      - run: pipenv install --dev --deploy
       - run: pipenv run python -m flake8
-      - run: pipenv run black --check --diff --color
-      - run: pipenv run pyright
+      - run: pipenv run black --check --diff --color .
