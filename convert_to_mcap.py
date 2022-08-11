@@ -675,7 +675,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         print(f"Writing to {filepath}")
         writer = Writer(fp)
         rosmsg_writer = RosmsgWriter(writer)
-        writer.start(profile="ros1", library="nuscenes2bag")
+        writer.start(profile="ros1", library="nuscenes2mcap")
 
         writer.add_metadata(
             "scene-info",
