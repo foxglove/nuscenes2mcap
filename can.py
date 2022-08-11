@@ -4,12 +4,14 @@ from nav_msgs.msg import Odometry
 
 import rospy
 
+
 def get_utime(data):
     t = rospy.Time()
     t.secs, msecs = divmod(data['utime'], 1_000_000)
     t.nsecs = msecs * 1000
 
     return t
+
 
 def get_basic_can_msg(name, diag_data):
     values = []
@@ -22,6 +24,7 @@ def get_basic_can_msg(name, diag_data):
     msg.status.append(DiagnosticStatus(name=name, level=0, message='OK', values=values))
 
     return (msg.header.stamp, '/diagnostics', msg)
+
 
 def get_odom_msg(pose_data):
     msg = Odometry()
@@ -41,27 +44,29 @@ def get_odom_msg(pose_data):
     msg.twist.twist.angular.x = pose_data['rotation_rate'][0]
     msg.twist.twist.angular.y = pose_data['rotation_rate'][1]
     msg.twist.twist.angular.z = pose_data['rotation_rate'][2]
-    
+
     return (msg.header.stamp, '/odom', msg)
+
 
 def get_imu_msg(imu_data):
     msg = Imu()
     msg.header.frame_id = 'base_link'
     msg.header.stamp = get_utime(imu_data)
-    msg.angular_velocity.x = imu_data['rotation_rate'][0];
-    msg.angular_velocity.y = imu_data['rotation_rate'][1];
-    msg.angular_velocity.z = imu_data['rotation_rate'][2];
+    msg.angular_velocity.x = imu_data['rotation_rate'][0]
+    msg.angular_velocity.y = imu_data['rotation_rate'][1]
+    msg.angular_velocity.z = imu_data['rotation_rate'][2]
 
-    msg.linear_acceleration.x = imu_data['linear_accel'][0];
-    msg.linear_acceleration.y = imu_data['linear_accel'][1];
-    msg.linear_acceleration.z = imu_data['linear_accel'][2];
+    msg.linear_acceleration.x = imu_data['linear_accel'][0]
+    msg.linear_acceleration.y = imu_data['linear_accel'][1]
+    msg.linear_acceleration.z = imu_data['linear_accel'][2]
 
-    msg.orientation.w = imu_data['q'][0];
-    msg.orientation.x = imu_data['q'][1];
-    msg.orientation.y = imu_data['q'][2];
-    msg.orientation.z = imu_data['q'][3];
-    
+    msg.orientation.w = imu_data['q'][0]
+    msg.orientation.x = imu_data['q'][1]
+    msg.orientation.y = imu_data['q'][2]
+    msg.orientation.z = imu_data['q'][3]
+
     return (msg.header.stamp, '/imu', msg)
+
 
 def get_can_parsers(nusc_can, scene_name):
     return [

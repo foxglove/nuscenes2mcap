@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Dict
 
+
 @dataclass
 class Event:
     timestamp_ns: int
@@ -23,7 +24,7 @@ class Annotator:
         self.max_num_peds = 0
         self.summary = None
 
-    def on_mcap_start(self, summary, scene_info = None) -> List[Event]:
+    def on_mcap_start(self, summary, scene_info=None) -> List[Event]:
         self.summary = summary
         if scene_info is None:
             return []
@@ -50,9 +51,9 @@ class Annotator:
                 duration_ns=to_ns(imu.header.stamp - self.jerk_start_time),
                 metadata={
                     "category": "large_acceleration",
-                    "max": f"{self.max_acceleration:.2f}"
+                    "max": f"{self.max_acceleration:.2f}",
                 },
-            ) 
+            )
             self.jerk_start_time = None
             self.max_acceleration = 0
             return [event]
@@ -73,7 +74,7 @@ class Annotator:
                     "category": "many_pedestrians",
                     "max": str(self.max_num_peds)
                 },
-            ) 
+            )
             self.ped_event_start_time = None
             self.max_num_peds = 0
             return [event]
