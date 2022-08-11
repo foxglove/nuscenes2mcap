@@ -50,16 +50,17 @@ def main():
             reader = make_reader(f)
             summary = reader.get_summary()
             scene_info = next(
-                (metadata for metadata in reader.iter_metadata()
-                 if metadata.name == "scene-info"),
-                None
+                (metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info"),
+                None,
             )
             try:
                 vehicle = scene_info.metadata["vehicle"]
                 device_id = device_ids[vehicle]
             except KeyError:
                 print(
-                    f"device ID not found for vehicle '{vehicle}' - has this MCAP been uploaded?", file=sys.stderr)
+                    f"device ID not found for vehicle '{vehicle}' - has this MCAP been uploaded?",
+                    file=sys.stderr,
+                )
                 return 1
 
             events.extend(annotator.on_mcap_start(summary, scene_info))
@@ -79,10 +80,8 @@ def main():
         # save existing events
         old_events = client.get_events(
             device_id=device_id,
-            start=datetime.fromtimestamp(
-                float(summary.statistics.message_start_time) / 1e9),
-            end=datetime.fromtimestamp(
-                float(summary.statistics.message_end_time) / 1e9),
+            start=datetime.fromtimestamp(float(summary.statistics.message_start_time) / 1e9),
+            end=datetime.fromtimestamp(float(summary.statistics.message_end_time) / 1e9),
         )
 
         print(f"uploading {len(events)} events for {filepath} ...")

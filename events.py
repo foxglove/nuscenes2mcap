@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Dict
 
+
 @dataclass
 class Event:
     timestamp_ns: int
@@ -23,7 +24,7 @@ class Annotator:
         self.max_num_peds = 0
         self.summary = None
 
-    def on_mcap_start(self, summary, scene_info = None) -> List[Event]:
+    def on_mcap_start(self, summary, scene_info=None) -> List[Event]:
         self.summary = summary
         if scene_info is None:
             return []
@@ -50,9 +51,9 @@ class Annotator:
                 duration_ns=to_ns(imu.header.stamp - self.jerk_start_time),
                 metadata={
                     "category": "large_acceleration",
-                    "max": f"{self.max_acceleration:.2f}"
+                    "max": f"{self.max_acceleration:.2f}",
                 },
-            ) 
+            )
             self.jerk_start_time = None
             self.max_acceleration = 0
             return [event]
@@ -71,9 +72,9 @@ class Annotator:
                 duration_ns=to_ns(stamp - self.ped_event_start_time),
                 metadata={
                     "category": "many_pedestrians",
-                    "max": str(self.max_num_peds)
+                    "max": str(self.max_num_peds),
                 },
-            ) 
+            )
             self.ped_event_start_time = None
             self.max_num_peds = 0
             return [event]
@@ -85,22 +86,26 @@ class Annotator:
         events = []
 
         if self.jerk_start_time is not None:
-            events.append(Event(
-                timestamp_ns=to_ns(self.jerk_start_time),
-                duration_ns=self.summary.statistics.message_end_time - to_ns(self.jerk_start_time),
-                metadata={
-                    "category": "large_acceleration",
-                    "max": f"{self.max_acceleration:.2f}"
-                },
-            ))
+            events.append(
+                Event(
+                    timestamp_ns=to_ns(self.jerk_start_time),
+                    duration_ns=self.summary.statistics.message_end_time - to_ns(self.jerk_start_time),
+                    metadata={
+                        "category": "large_acceleration",
+                        "max": f"{self.max_acceleration:.2f}",
+                    },
+                )
+            )
 
         if self.ped_event_start_time is not None:
-            events.append(Event(
-                timestamp_ns=to_ns(self.ped_event_start_time),
-                duration_ns=self.summary.statistics.message_end_time - to_ns(self.ped_event_start_time),
-                metadata={
-                    "category": "many_pedestrians",
-                    "max": str(self.max_num_peds),
-                },
-            ))
+            events.append(
+                Event(
+                    timestamp_ns=to_ns(self.ped_event_start_time),
+                    duration_ns=self.summary.statistics.message_end_time - to_ns(self.ped_event_start_time),
+                    metadata={
+                        "category": "many_pedestrians",
+                        "max": str(self.max_num_peds),
+                    },
+                )
+            )
         return events

@@ -1,7 +1,8 @@
-from typing import IO, Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 from io import BytesIO
 
 import rospy
+
 
 class RosmsgWriter:
     def __init__(self, output):

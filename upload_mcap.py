@@ -48,8 +48,7 @@ def main():
         previous_uploads = client.get_imports(filename=filename)
         with open(filepath, "rb") as f:
             reader = make_reader(f)
-            scene_info = next(metadata for metadata in reader.iter_metadata(
-            ) if metadata.name == "scene-info")
+            scene_info = next(metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info")
             device_name = scene_info.metadata["vehicle"]
             device_id = device_ids.get(device_name)
             if device_id is None:
@@ -64,12 +63,11 @@ def main():
                     device_id=device_id,
                     filename=filename,
                     data=f,
-                    callback=progress_bar.update_to
+                    callback=progress_bar.update_to,
                 )
 
         if previous_uploads:
-            print(
-                f"removing {len(previous_uploads)} previously-uploaded instance(s) of {filename}")
+            print(f"removing {len(previous_uploads)} previously-uploaded instance(s) of {filename}")
         for upload in previous_uploads:
             client.delete_import(
                 device_id=upload["device_id"],
