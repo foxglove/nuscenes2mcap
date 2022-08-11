@@ -9,8 +9,8 @@ nuScenes is a large-scale dataset of autonomous driving in urban environments, p
 ## Usage
 
 ### Converting the nuScenes data to MCAP
-1. Download one of the [nuScenes datasets](https://nuscenes.org/nuscenes). You will need to make
-   an account and sign the terms of use.
+1. Download the [nuScenes mini dataset](https://nuscenes.org/nuscenes). You will need to make
+   an account and agree to the terms of use.
 1. Extract the following files into the `data/` directory:
     1. `can_bus.zip` to `data/`
     1. `nuScenes-map-expansion-v1.3.zip` to `data/maps`
