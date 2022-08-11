@@ -21,13 +21,15 @@ def main():
     parser.add_argument(
         "--token",
         "-t",
-        default=os.environ.get("FOXGLOVE_CONSOLE_TOKEN"),
-        help="data platform secret token (if not provided, FOXGLOVE_CONSOLE_TOKEN from environment is used)",
+        help="data platform secret token (if not provided, FOXGLOVE_DATA_PLATFORM_TOKEN from environment is used)",
     )
     args = parser.parse_args()
     if args.token is None:
-        print("FOXGLOVE_CONSOLE_TOKEN not in environment", file=sys.stderr)
-        return 1
+        token = os.environ.get("FOXGLOVE_DATA_PLATFORM_TOKEN")
+        if token is None:
+            print("FOXGLOVE_DATA_PLATFORM_TOKEN not in environment", file=sys.stderr)
+            return 1
+        args.token = token
 
     client = Client(token=args.token)
     device_ids = {resp["name"]: resp["id"] for resp in client.get_devices()}

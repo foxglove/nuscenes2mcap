@@ -4,9 +4,11 @@
 
 ## Introduction
 
-nuScenes is a large-scale dataset of autonomous driving in urban environments, provided free for non-commercial use. This project provides helper scripts to download the nuScenes dataset and convert scenes into ROS bag files for easy viewing in tools such as [Foxglove Studio](https://foxglove.dev/).
+nuScenes is a large-scale dataset of autonomous driving in urban environments, provided free for non-commercial use. This project provides helper scripts to download the nuScenes dataset and convert scenes into [MCAP](mcap.dev) files for easy viewing in tools such as [Foxglove Studio](https://foxglove.dev/).
 
 ## Usage
+
+### Converting the nuScenes data to MCAP
 1. Download one of the [nuScenes datasets](https://nuscenes.org/nuscenes). You will need to make
    an account and sign the terms of use.
 1. Extract the following files into the `data/` directory:
@@ -14,6 +16,22 @@ nuScenes is a large-scale dataset of autonomous driving in urban environments, p
     1. `nuScenes-map-expansion-v1.3.zip` to `data/maps`
     1. `v1.0-mini.tgz` to `data/`
 1. Build and run the converter container with `./convert_mini_scenes.sh`
+
+### Uploading data and events to Foxglove Data Platform
+
+If you have a Foxglove Data Platform API key, you can use it to upload your scene data with:
+```
+docker build -t mcap_converter .
+export FOXGLOVE_DATA_PLATFORM_TOKEN=<your secret token>
+docker run -e FOXGLOVE_DATA_PLATFORM_TOKEN -v $(pwd)/output:/output \
+    mcap_converter python3 upload_mcap.py /output
+```
+
+This repo also contains a script that can create synthetic events from the MCAP data.
+```
+docker run -e FOXGLOVE_DATA_PLATFORM_TOKEN -v $(pwd)/output:/output \
+    mcap_converter python3 upload_events.py /output
+```
 
 ## License
 
