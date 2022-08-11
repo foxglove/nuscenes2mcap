@@ -8,13 +8,7 @@ nuScenes is a large-scale dataset of autonomous driving in urban environments, p
 
 ## Usage
 
-* Create a VM in your GCS project.
-    * Use a Debian base image
-    * Give it the credentials of a service account with read access to the `gs://nuscenes_all`
-      bucket. Ask James Smith for access.
-    * :q
-    :qa
-
+* Open the project in vscode and rebuild/launch it in a dev container
 
 * Download nuscenes data into the `data` folder and unpack:
     - can_bus.zip
