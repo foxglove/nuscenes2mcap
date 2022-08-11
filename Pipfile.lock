@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "eee5f307dd37b00b41c1ec135c31d9ab06a6af5bb1326fb90981c56f3c8ec34c"
+            "sha256": "f1d7da676f684ccc6e4784fe0bd55bd6c12b7fe1ebec7934931e08049ad8a4f3"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -77,14 +77,6 @@
             ],
             "version": "==0.4.3"
         },
-        "nodeenv": {
-            "hashes": [
-                "sha256:27083a7b96a25f2f5e1d8cb4b6317ee8aeda3bdd121394e5ac54e498028a042e",
-                "sha256:e0e7f7dfb85fc5394c6fe1e8fa98131a2473e04311a45afb6508f7cf1836fa2b"
-            ],
-            "markers": "python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6'",
-            "version": "==1.7.0"
-        },
         "pathspec": {
             "hashes": [
                 "sha256:7d15c4ddb0b5c802d161efc417ec1a2558ea2653c2e8ad9c19098201dc1c993a",
@@ -115,22 +107,6 @@
             ],
             "markers": "python_version >= '3.6'",
             "version": "==2.5.0"
-        },
-        "pyright": {
-            "hashes": [
-                "sha256:1154aeaaa0b62f5161af09342bf0a586468d6789377dfd8710ba8d85c22eee94",
-                "sha256:246b2fb33c9483ac6e684e8e7619e3ecf0fee20180ec22549a4f3cdf47dbd0de"
-            ],
-            "index": "pypi",
-            "version": "==1.1.266"
-        },
-        "setuptools": {
-            "hashes": [
-                "sha256:521c833d1e5e1ef0869940e7f486a83de7773b9f029010ad0c2fe35453a9dad9",
-                "sha256:7f61f7e82647f77d4118eeaf43d64cbcd4d87e38af9611694d4866eb070cd10d"
-            ],
-            "markers": "python_version >= '3.7'",
-            "version": "==63.4.3"
         },
         "tomli": {
             "hashes": [

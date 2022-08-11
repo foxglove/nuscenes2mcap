@@ -1,7 +1,6 @@
 [dev-packages]
 flake8 = "*"
 black = "*"
-pyright = "*"
 
 [requires]
 python_version = "3"
