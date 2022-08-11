@@ -34,10 +34,7 @@ class Annotator:
         return [
             Event(
                 timestamp_ns=summary.statistics.message_start_time,
-                duration_ns=(
-                    summary.statistics.message_end_time
-                    - summary.statistics.message_start_time
-                ),
+                duration_ns=(summary.statistics.message_end_time - summary.statistics.message_start_time),
                 metadata=metadata,
             )
         ]
@@ -47,13 +44,8 @@ class Annotator:
         if longitudinal_acceleration >= self.ACCELERATION_THRESHOLD:
             if self.jerk_start_time is None:
                 self.jerk_start_time = imu.header.stamp
-            self.max_acceleration = max(
-                longitudinal_acceleration, self.max_acceleration
-            )
-        if (
-            longitudinal_acceleration < self.ACCELERATION_THRESHOLD
-            and self.jerk_start_time is not None
-        ):
+            self.max_acceleration = max(longitudinal_acceleration, self.max_acceleration)
+        if longitudinal_acceleration < self.ACCELERATION_THRESHOLD and self.jerk_start_time is not None:
             event = Event(
                 timestamp_ns=to_ns(self.jerk_start_time),
                 duration_ns=to_ns(imu.header.stamp - self.jerk_start_time),
@@ -68,20 +60,13 @@ class Annotator:
         return []
 
     def on_marker_array(self, marker_array) -> List[Event]:
-        num_peds = sum(
-            1
-            for marker in marker_array.markers
-            if marker.ns.startswith("human.pedestrian")
-        )
+        num_peds = sum(1 for marker in marker_array.markers if marker.ns.startswith("human.pedestrian"))
         stamp = next((marker.header.stamp for marker in marker_array.markers), None)
         if num_peds > self.PEDESTRIAN_THRESHOLD:
             if self.ped_event_start_time is None:
                 self.ped_event_start_time = stamp
             self.max_num_peds = max(self.max_num_peds, num_peds)
-        if (
-            num_peds < self.PEDESTRIAN_THRESHOLD
-            and self.ped_event_start_time is not None
-        ):
+        if num_peds < self.PEDESTRIAN_THRESHOLD and self.ped_event_start_time is not None:
             event = Event(
                 timestamp_ns=to_ns(self.ped_event_start_time),
                 duration_ns=to_ns(stamp - self.ped_event_start_time),
@@ -104,8 +89,7 @@ class Annotator:
             events.append(
                 Event(
                     timestamp_ns=to_ns(self.jerk_start_time),
-                    duration_ns=self.summary.statistics.message_end_time
-                    - to_ns(self.jerk_start_time),
+                    duration_ns=self.summary.statistics.message_end_time - to_ns(self.jerk_start_time),
                     metadata={
                         "category": "large_acceleration",
                         "max": f"{self.max_acceleration:.2f}",
@@ -117,8 +101,7 @@ class Annotator:
             events.append(
                 Event(
                     timestamp_ns=to_ns(self.ped_event_start_time),
-                    duration_ns=self.summary.statistics.message_end_time
-                    - to_ns(self.ped_event_start_time),
+                    duration_ns=self.summary.statistics.message_end_time - to_ns(self.ped_event_start_time),
                     metadata={
                         "category": "many_pedestrians",
                         "max": str(self.max_num_peds),
