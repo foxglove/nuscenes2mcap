@@ -31,21 +31,23 @@ class Annotator:
         tags = [tag.strip() for tag in scene_info.metadata["description"].split(",")]
         metadata = {tag: "true" for tag in tags}
         metadata["category"] = "scene_description"
-        return [
-            Event(
-                timestamp_ns=summary.statistics.message_start_time,
-                duration_ns=(summary.statistics.message_end_time - summary.statistics.message_start_time),
-                metadata=metadata,
-            )
-        ]
+        metadata["nuscene"] = scene_info.metadata["name"]
+        metadata["city"] = scene_info.metadata["location"]
+
+        return [Event(
+            timestamp_ns=summary.statistics.message_start_time,
+            duration_ns=(summary.statistics.message_end_time - summary.statistics.message_start_time),
+            metadata=metadata,
+        )]
 
     def on_imu(self, imu) -> List[Event]:
-        longitudinal_acceleration = abs(imu.linear_acceleration.x)
-        if longitudinal_acceleration >= self.ACCELERATION_THRESHOLD:
+        longitudinal_acceleration = imu.linear_acceleration.x
+        if abs(longitudinal_acceleration) >= self.ACCELERATION_THRESHOLD:
             if self.jerk_start_time is None:
                 self.jerk_start_time = imu.header.stamp
-            self.max_acceleration = max(longitudinal_acceleration, self.max_acceleration)
-        if longitudinal_acceleration < self.ACCELERATION_THRESHOLD and self.jerk_start_time is not None:
+            if abs(longitudinal_acceleration) > abs(self.max_acceleration):
+                self.max_acceleration = longitudinal_acceleration
+        if abs(longitudinal_acceleration) < self.ACCELERATION_THRESHOLD and self.jerk_start_time is not None:
             event = Event(
                 timestamp_ns=to_ns(self.jerk_start_time),
                 duration_ns=to_ns(imu.header.stamp - self.jerk_start_time),

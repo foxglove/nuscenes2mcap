@@ -21,6 +21,7 @@ def main():
         "-t",
         help="data platform secret token (if not provided, FOXGLOVE_DATA_PLATFORM_TOKEN from environment is used)",
     )
+    parser.add_argument("--commit", "-y", action="store_true", help="actually send the events")
     args = parser.parse_args()
     if args.token is None:
         token = os.environ.get("FOXGLOVE_DATA_PLATFORM_TOKEN")
@@ -89,17 +90,23 @@ def main():
         print(f"uploading {len(events)} events for {filepath} ...")
         for event in events:
             # create new events
-            client.create_event(
-                device_id=device_id,
-                time=datetime.fromtimestamp(float(event.timestamp_ns) / 1e9),
-                duration=event.duration_ns,
-                metadata=event.metadata,
-            )
+            if args.commit:
+                client.create_event(
+                    device_id=device_id,
+                    time=datetime.fromtimestamp(float(event.timestamp_ns) / 1e9),
+                    duration=event.duration_ns,
+                    metadata=event.metadata,
+                )
+            else:
+                print(f"would upload: {event}")
 
         # destroy old events once new events have been uploaded
         print(f"deleting {len(old_events)} old events for {filepath} ...")
         for old_event in old_events:
-            client.delete_event(event_id=old_event["id"])
+            if args.commit:
+                client.delete_event(event_id=old_event["id"])
+            else:
+                print(f"would event: {old_event}")
         return 0
 
 
