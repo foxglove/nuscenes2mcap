@@ -12,4 +12,4 @@ mkdir -p output
 docker run -t --rm \
     --user $(id -u):$(id -g) \
     -v $(pwd)/data:/data -v $(pwd)/output:/output \
-    mcap_converter python3 convert_to_mcap.py --data-dir /data --output-dir /output
+    mcap_converter python3 convert_to_mcap.py --data-dir /data --output-dir /output "$@"

@@ -18,6 +18,7 @@ from sensor_msgs.msg import (
 )
 from std_msgs.msg import ColorRGBA
 from tf2_msgs.msg import TFMessage
+from tqdm import tqdm
 from typing import Tuple, Dict
 from visualization_msgs.msg import ImageMarker, Marker, MarkerArray
 from PIL import Image
@@ -643,6 +644,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
     print(f"vehicle is {log['vehicle']}")
 
     cur_sample = nusc.get("sample", scene["first_sample_token"])
+    pbar = tqdm(total=scene["nbr_samples"], unit="sample", desc=f"{scene_name} Samples", leave=False)
 
     can_parsers = [
         [nusc_can.get_messages(scene_name, "ms_imu"), 0, get_imu_msg],
@@ -701,6 +703,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         last_map_stamp = stamp
 
         while cur_sample is not None:
+            pbar.update(1)
             sample_lidar = nusc.get("sample_data", cur_sample["data"]["LIDAR_TOP"])
             ego_pose = nusc.get("ego_pose", sample_lidar["ego_pose_token"])
             stamp = get_time(ego_pose)
@@ -716,7 +719,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # write CAN messages to /pose, /odom, and /diagnostics
             can_msg_events = []
-            for i in range(len(can_parsers)):
+            for i in tqdm(range(len(can_parsers)), desc="CAN messages", leave=False):
                 (can_msgs, index, msg_func) = can_parsers[i]
                 while index < len(can_msgs) and get_utime(can_msgs[index]) < stamp:
                     can_msg_events.append(msg_func(can_msgs[index]))
@@ -734,7 +737,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp)
 
             # iterate sensors
-            for (sensor_id, sample_token) in cur_sample["data"].items():
+            for (sensor_id, sample_token) in tqdm(cur_sample["data"].items(), desc="Sensors", leave=False):
                 sample_data = nusc.get("sample_data", sample_token)
                 topic = "/" + sensor_id
 
@@ -785,7 +788,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # publish /markers/annotations
             marker_array = MarkerArray()
-            for annotation_id in cur_sample["anns"]:
+            for annotation_id in tqdm(cur_sample["anns"], desc="Annotations", leave=False):
                 ann = nusc.get("sample_annotation", annotation_id)
                 marker_id = int(ann["instance_token"][:4], 16)
                 c = np.array(nusc.explorer.get_color(ann["category_name"])) / 255.0
@@ -813,7 +816,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # collect all sensor frames after this sample but before the next sample
             non_keyframe_sensor_msgs = []
-            for (sensor_id, sample_token) in cur_sample["data"].items():
+            for (sensor_id, sample_token) in tqdm(cur_sample["data"].items(), desc="Sensors", leave=False):
                 topic = "/" + sensor_id
 
                 next_sample_token = nusc.get("sample_data", sample_token)["next"]
@@ -868,6 +871,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             # move to the next sample
             cur_sample = nusc.get("sample", cur_sample["next"]) if cur_sample.get("next") != "" else None
 
+        pbar.close()
         writer.finish()
         print(f"Finished writing {filepath}")
 
