@@ -13,8 +13,6 @@ from sensor_msgs.msg import (
     CompressedImage,
     Imu,
     NavSatFix,
-    PointField,
-    PointCloud2,
 )
 from std_msgs.msg import ColorRGBA
 from tf2_msgs.msg import TFMessage
@@ -691,7 +689,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         writer = Writer(fp)
         protobuf_writer = ProtobufWriter(writer)
         rosmsg_writer = RosmsgWriter(writer)
-        writer.start(profile="ros1", library="nuscenes2mcap")
+        writer.start(profile="", library="nuscenes2mcap")
 
         writer.add_metadata(
             "scene-info",
