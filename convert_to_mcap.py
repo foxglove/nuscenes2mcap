@@ -456,39 +456,15 @@ def get_ego_tf(ego_pose):
     return ego_tf
 
 
-def get_tfs(nusc, sample) -> List[FrameTransform]:
-    sample_lidar = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
-    ego_pose = nusc.get("ego_pose", sample_lidar["ego_pose_token"])
-
-    transforms = []
-    transforms.append(get_ego_tf(ego_pose))
-
-    for (sensor_id, sample_token) in sample["data"].items():
-        sample_data = nusc.get("sample_data", sample_token)
-
-        # create sensor transform
-        sensor_tf = FrameTransform()
-        sensor_tf.parent_frame_id = "base_link"
-        sensor_tf.timestamp.FromMicroseconds(ego_pose["timestamp"])
-        sensor_tf.child_frame_id = sensor_id
-        calibrated_sensor = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
-        sensor_tf.translation.CopyFrom(get_translation(calibrated_sensor))
-        sensor_tf.rotation.CopyFrom(get_rotation(calibrated_sensor))
-        transforms.append(sensor_tf)
-
-    return transforms
-
-
-def get_tf_array(nusc, sample) -> List[FrameTransform]:
-    # get transforms for the current sample
-    tf_array = get_tfs(nusc, sample)
-
-    # add transforms from the next sample to enable interpolation
-    next_sample = nusc.get("sample", sample["next"]) if sample.get("next") != "" else None
-    if next_sample is not None:
-        tf_array += get_tfs(nusc, next_sample)
-
-    return tf_array
+def get_sensor_tf(nusc, sensor_id, sample_data):
+    sensor_tf = FrameTransform()
+    sensor_tf.parent_frame_id = "base_link"
+    sensor_tf.timestamp.FromMicroseconds(sample_data["timestamp"])
+    sensor_tf.child_frame_id = sensor_id
+    calibrated_sensor = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
+    sensor_tf.translation.CopyFrom(get_translation(calibrated_sensor))
+    sensor_tf.rotation.CopyFrom(get_rotation(calibrated_sensor))
+    return sensor_tf
 
 
 def scene_bounding_box(nusc, scene, nusc_map, padding=75.0):
@@ -746,14 +722,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 topic = "/" + sensor_id
 
                 # create sensor transform
-                sensor_tf = FrameTransform()
-                sensor_tf.parent_frame_id = "base_link"
-                sensor_tf.timestamp.FromNanoseconds(stamp.to_nsec())
-                sensor_tf.child_frame_id = sensor_id
-                calibrated_sensor = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
-                sensor_tf.translation.CopyFrom(get_translation(calibrated_sensor))
-                sensor_tf.rotation.CopyFrom(get_rotation(calibrated_sensor))
-                protobuf_writer.write_message("/tf", sensor_tf, stamp.to_nsec())
+                protobuf_writer.write_message("/tf", get_sensor_tf(nusc, sensor_id, sample_data), stamp.to_nsec())
 
                 # write the sensor data
                 if sample_data["sensor_modality"] == "radar":
