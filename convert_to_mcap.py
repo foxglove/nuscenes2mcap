@@ -199,7 +199,7 @@ def turbomap(x):
     a = x.astype(np.uint8)
     x -= a  # compute "f" in place
     b = np.minimum(254, a)
-    np.add(b, 1, out=b)
+    b += 1
     color_a = TURBOMAP_DATA[a]
     color_b = TURBOMAP_DATA[b]
     color_b -= color_a
