@@ -124,7 +124,7 @@ def derive_latlon(location: str, pose: Dict[str, float]):
     ts = get_time(pose)
     x, y = pose["translation"][:2]
     bearing = math.atan(x / y)
-    distance = math.sqrt(x ** 2 + y ** 2)
+    distance = math.sqrt(x**2 + y**2)
     lat, lon = get_coordinate(reference_lat, reference_lon, bearing, distance)
     return lat, lon, ts
 
