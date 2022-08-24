@@ -33,6 +33,12 @@ docker run -e FOXGLOVE_DATA_PLATFORM_TOKEN -v $(pwd)/output:/output \
     mcap_converter python3 upload_events.py /output
 ```
 
+### Updating Protobuf definitions
+```
+pip install mypy-protobuf
+protoc --python_out=. --mypy_out=. --proto_path /path/to/foxglove/schemas/schemas/proto/ /path/to/foxglove/schemas/schemas/proto/foxglove/*.proto 
+```
+
 ## License
 
 nuscenes2mcap is licensed under [MIT License](https://opensource.org/licenses/MIT).
