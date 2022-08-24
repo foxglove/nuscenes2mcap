@@ -3,7 +3,7 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import rospy
@@ -611,6 +611,17 @@ class Collector:
         self.colors.append(color)
 
 
+def get_num_sample_data(nusc: NuScenes, scene):
+    num_sample_data = 0
+    sample = nusc.get("sample", scene["first_sample_token"])
+    for sample_token in sample["data"].values():
+        sample_data = nusc.get("sample_data", sample_token)
+        while sample_data is not None:
+            num_sample_data += 1
+            sample_data = nusc.get("sample_data", sample_data["next"]) if sample_data["next"] != "" else None
+    return num_sample_data
+
+
 def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepath):
     scene_name = scene["name"]
     log = nusc.get("log", scene["log_token"])
@@ -624,7 +635,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
     print(f"vehicle is {log['vehicle']}")
 
     cur_sample = nusc.get("sample", scene["first_sample_token"])
-    pbar = tqdm(total=scene["nbr_samples"], unit="sample", desc=f"{scene_name} Samples", leave=False)
+    pbar = tqdm(total=get_num_sample_data(nusc, scene), unit="sample_data", desc=f"{scene_name} Sample Data", leave=False)
 
     can_parsers = [
         [nusc_can.get_messages(scene_name, "ms_imu"), 0, get_imu_msg],
@@ -684,7 +695,6 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         last_map_stamp = stamp
 
         while cur_sample is not None:
-            pbar.update(1)
             sample_lidar = nusc.get("sample_data", cur_sample["data"]["LIDAR_TOP"])
             ego_pose = nusc.get("ego_pose", sample_lidar["ego_pose_token"])
             stamp = get_time(ego_pose)
@@ -700,7 +710,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # write CAN messages to /pose, /odom, and /diagnostics
             can_msg_events = []
-            for i in tqdm(range(len(can_parsers)), desc="CAN messages", leave=False):
+            for i in range(len(can_parsers)):
                 (can_msgs, index, msg_func) = can_parsers[i]
                 while index < len(can_msgs) and get_utime(can_msgs[index]) < stamp:
                     can_msg_events.append(msg_func(can_msgs[index]))
@@ -717,7 +727,8 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp)
 
             # iterate sensors
-            for (sensor_id, sample_token) in tqdm(cur_sample["data"].items(), desc="Sensors", leave=False):
+            for (sensor_id, sample_token) in cur_sample["data"].items():
+                pbar.update(1)
                 sample_data = nusc.get("sample_data", sample_token)
                 topic = "/" + sensor_id
 
@@ -771,7 +782,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # publish /markers/annotations
             marker_array = MarkerArray()
-            for annotation_id in tqdm(cur_sample["anns"], desc="Annotations", leave=False):
+            for annotation_id in cur_sample["anns"]:
                 ann = nusc.get("sample_annotation", annotation_id)
                 marker_id = int(ann["instance_token"][:4], 16)
                 c = np.array(nusc.explorer.get_color(ann["category_name"])) / 255.0
@@ -799,7 +810,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # collect all sensor frames after this sample but before the next sample
             non_keyframe_sensor_msgs = []
-            for (sensor_id, sample_token) in tqdm(cur_sample["data"].items(), desc="Sensors", leave=False):
+            for (sensor_id, sample_token) in cur_sample["data"].items():
                 topic = "/" + sensor_id
 
                 next_sample_token = nusc.get("sample_data", sample_token)["next"]
@@ -810,6 +821,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                     if next_sample_data["is_key_frame"]:
                         break
 
+                    pbar.update(1)
                     ego_pose = nusc.get("ego_pose", next_sample_data["ego_pose_token"])
                     ego_tf = get_ego_tf(ego_pose)
                     non_keyframe_sensor_msgs.append((ego_tf.timestamp.ToNanoseconds(), "/tf", ego_tf))
