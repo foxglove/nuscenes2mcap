@@ -8,7 +8,6 @@ from typing import Dict, Tuple
 import numpy as np
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from foxglove_msgs.msg import ImageMarkerArray
 from geometry_msgs.msg import Point, Pose, PoseStamped
 from mcap.mcap0.writer import Writer
 from nav_msgs.msg import OccupancyGrid, Odometry
@@ -19,14 +18,18 @@ from nuscenes.nuscenes import NuScenes
 from PIL import Image
 from pypcd import pypcd
 from pyquaternion import Quaternion
-from sensor_msgs.msg import CameraInfo, CompressedImage, Imu, NavSatFix
+from sensor_msgs.msg import Imu, NavSatFix
 from std_msgs.msg import ColorRGBA
 from tqdm import tqdm
-from visualization_msgs.msg import ImageMarker, Marker, MarkerArray
+from visualization_msgs.msg import Marker, MarkerArray
 
+from foxglove.CameraCalibration_pb2 import CameraCalibration
+from foxglove.CompressedImage_pb2 import CompressedImage
 from foxglove.FrameTransform_pb2 import FrameTransform
+from foxglove.ImageAnnotations_pb2 import ImageAnnotations
 from foxglove.PackedElementField_pb2 import PackedElementField
 from foxglove.PointCloud_pb2 import PointCloud
+from foxglove.PointsAnnotation_pb2 import PointsAnnotation
 from foxglove.Quaternion_pb2 import Quaternion as foxglove_Quaternion
 from foxglove.Vector3_pb2 import Vector3
 from ProtobufWriter import ProtobufWriter
@@ -243,51 +246,26 @@ def get_radar(data_path, sample_data, frame_id) -> PointCloud:
     return msg
 
 
-def get_camera(data_path, sample_data, frame_id):
+def get_camera(data_path, sample_data):
     jpg_filename = data_path / sample_data["filename"]
     msg = CompressedImage()
-    msg.header.frame_id = frame_id
-    msg.header.stamp = get_time(sample_data)
+    msg.timestamp.FromMicroseconds(sample_data["timestamp"])
     msg.format = "jpeg"
     with open(jpg_filename, "rb") as jpg_file:
         msg.data = jpg_file.read()
     return msg
 
 
-def get_camera_info(nusc, sample_data, frame_id):
+def get_camera_info(nusc, sample_data):
     calib = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
 
-    msg_info = CameraInfo()
-    msg_info.header.frame_id = frame_id
-    msg_info.header.stamp = get_time(sample_data)
+    msg_info = CameraCalibration()
+    msg_info.timestamp.FromMicroseconds(sample_data["timestamp"])
     msg_info.height = sample_data["height"]
     msg_info.width = sample_data["width"]
-    msg_info.K[0] = calib["camera_intrinsic"][0][0]
-    msg_info.K[1] = calib["camera_intrinsic"][0][1]
-    msg_info.K[2] = calib["camera_intrinsic"][0][2]
-    msg_info.K[3] = calib["camera_intrinsic"][1][0]
-    msg_info.K[4] = calib["camera_intrinsic"][1][1]
-    msg_info.K[5] = calib["camera_intrinsic"][1][2]
-    msg_info.K[6] = calib["camera_intrinsic"][2][0]
-    msg_info.K[7] = calib["camera_intrinsic"][2][1]
-    msg_info.K[8] = calib["camera_intrinsic"][2][2]
-
-    msg_info.R[0] = 1
-    msg_info.R[3] = 1
-    msg_info.R[6] = 1
-
-    msg_info.P[0] = msg_info.K[0]
-    msg_info.P[1] = msg_info.K[1]
-    msg_info.P[2] = msg_info.K[2]
-    msg_info.P[3] = 0
-    msg_info.P[4] = msg_info.K[3]
-    msg_info.P[5] = msg_info.K[4]
-    msg_info.P[6] = msg_info.K[5]
-    msg_info.P[7] = 0
-    msg_info.P[8] = 0
-    msg_info.P[9] = 0
-    msg_info.P[10] = 1
-    msg_info.P[11] = 0
+    msg_info.K[:] = (calib["camera_intrinsic"][r][c] for r in range(3) for c in range(3))
+    msg_info.R[:] = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    msg_info.P[:] = [msg_info.K[0], msg_info.K[1], msg_info.K[2], 0, msg_info.K[3], msg_info.K[4], msg_info.K[5], 0, 0, 0, 1, 0]
     return msg_info
 
 
@@ -308,7 +286,7 @@ def get_lidar(data_path, sample_data, frame_id) -> PointCloud:
         return msg
 
 
-def get_lidar_imagemarkers(nusc, sample_lidar, sample_data, frame_id):
+def get_lidar_image_annotations(nusc, sample_lidar, sample_data, frame_id):
     # lidar image markers in camera frame
     points, coloring, _ = nusc.explorer.map_pointcloud_to_image(
         pointsensor_token=sample_lidar["token"],
@@ -318,30 +296,19 @@ def get_lidar_imagemarkers(nusc, sample_lidar, sample_data, frame_id):
     points = points.transpose()
     coloring = [turbomap(c) for c in coloring]
 
-    marker = ImageMarker()
-    marker.header.frame_id = frame_id
-    marker.header.stamp = get_time(sample_data)
-    marker.ns = "LIDAR_TOP"
-    marker.id = 0
-    marker.type = ImageMarker.POINTS
-    marker.action = ImageMarker.ADD
-    marker.scale = 2.0
-    marker.points = [make_point2d(p) for p in points]
-    marker.outline_colors = [make_color(c) for c in coloring]
-    return marker
+    msg = ImageAnnotations()
+    ann = msg.points.add()
+    ann.timestamp.FromMicroseconds(sample_data["timestamp"])
+    ann.type = PointsAnnotation.Type.POINTS
+    ann.thickness = 2
+    for p in points:
+        ann.points.add(x=p[0], y=p[1])
+    for c in coloring:
+        ann.outline_colors.add(r=c[0], g=c[1], b=c[2], a=1)
+    return msg
 
 
-def get_remove_imagemarkers(frame_id, ns, stamp):
-    marker = ImageMarker()
-    marker.header.frame_id = frame_id
-    marker.header.stamp = stamp
-    marker.ns = ns
-    marker.id = 0
-    marker.action = ImageMarker.REMOVE
-    return marker
-
-
-def write_boxes_imagemarkers(nusc, rosmsg_writer, anns, sample_data, frame_id, topic_ns, stamp):
+def write_boxes_image_annotations(nusc, protobuf_writer, anns, sample_data, frame_id, topic_ns, stamp):
     # annotation boxes
     collector = Collector()
     _, boxes, camera_intrinsic = nusc.get_sample_data(sample_data["token"])
@@ -349,21 +316,18 @@ def write_boxes_imagemarkers(nusc, rosmsg_writer, anns, sample_data, frame_id, t
         c = np.array(nusc.explorer.get_color(box.name)) / 255.0
         box.render(collector, view=camera_intrinsic, normalize=True, colors=(c, c, c))
 
-    marker = ImageMarker()
-    marker.header.frame_id = frame_id
-    marker.header.stamp = get_time(sample_data)
-    marker.ns = "annotations"
-    marker.id = 0
-    marker.type = ImageMarker.LINE_LIST
-    marker.action = ImageMarker.ADD
-    marker.scale = 2.0
-    marker.points = [make_point2d(p) for p in collector.points]
-    marker.outline_colors = [make_color(c) for c in collector.colors]
+    msg = ImageAnnotations()
 
-    msg = ImageMarkerArray()
-    msg.markers = [marker]
+    ann = msg.points.add()
+    ann.timestamp.FromMicroseconds(sample_data["timestamp"])
+    ann.type = PointsAnnotation.Type.LINE_LIST
+    ann.thickness = 2
+    for p in collector.points:
+        ann.points.add(x=p[0], y=p[1])
+    for c in collector.colors:
+        ann.outline_colors.add(r=c[0], g=c[1], b=c[2], a=1)
 
-    rosmsg_writer.write_message(topic_ns + "/image_markers_annotations", msg, stamp)
+    protobuf_writer.write_message(topic_ns + "/image_annotations_annotations", msg, ann.timestamp.ToNanoseconds())
 
 
 def write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp):
@@ -743,17 +707,17 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                     msg = get_lidar(data_path, sample_data, sensor_id)
                     protobuf_writer.write_message(topic, msg, stamp.to_nsec())
                 elif sample_data["sensor_modality"] == "camera":
-                    msg = get_camera(data_path, sample_data, sensor_id)
-                    rosmsg_writer.write_message(topic + "/image_rect_compressed", msg, stamp)
-                    msg = get_camera_info(nusc, sample_data, sensor_id)
-                    rosmsg_writer.write_message(topic + "/camera_info", msg, stamp)
+                    msg = get_camera(data_path, sample_data)
+                    protobuf_writer.write_message(topic + "/image_rect_compressed", msg, stamp.to_nsec())
+                    msg = get_camera_info(nusc, sample_data)
+                    protobuf_writer.write_message(topic + "/camera_info", msg, stamp.to_nsec())
 
                 if sample_data["sensor_modality"] == "camera":
-                    msg = get_lidar_imagemarkers(nusc, sample_lidar, sample_data, sensor_id)
-                    rosmsg_writer.write_message(topic + "/image_markers_lidar", msg, stamp)
-                    write_boxes_imagemarkers(
+                    msg = get_lidar_image_annotations(nusc, sample_lidar, sample_data, sensor_id)
+                    protobuf_writer.write_message(topic + "/image_annotations_lidar", msg, stamp.to_nsec())
+                    write_boxes_image_annotations(
                         nusc,
-                        rosmsg_writer,
+                        protobuf_writer,
                         cur_sample["anns"],
                         sample_data,
                         sensor_id,
@@ -833,29 +797,20 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                         msg = get_lidar(data_path, next_sample_data, sensor_id)
                         non_keyframe_sensor_msgs.append((msg.timestamp.ToNanoseconds(), topic, msg))
                     elif next_sample_data["sensor_modality"] == "camera":
-                        msg = get_camera(data_path, next_sample_data, sensor_id)
-                        camera_stamp_nsec = msg.header.stamp.to_nsec()
+                        msg = get_camera(data_path, next_sample_data)
+                        camera_stamp_nsec = msg.timestamp.ToNanoseconds()
                         non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + "/image_rect_compressed", msg))
 
-                        msg = get_camera_info(nusc, next_sample_data, sensor_id)
+                        msg = get_camera_info(nusc, next_sample_data)
                         non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + "/camera_info", msg))
 
                         closest_lidar = find_closest_lidar(nusc, cur_sample["data"]["LIDAR_TOP"], camera_stamp_nsec)
                         if closest_lidar is not None:
-                            msg = get_lidar_imagemarkers(nusc, closest_lidar, next_sample_data, sensor_id)
+                            msg = get_lidar_image_annotations(nusc, closest_lidar, next_sample_data, sensor_id)
                             non_keyframe_sensor_msgs.append(
                                 (
-                                    msg.header.stamp.to_nsec(),
-                                    topic + "/image_markers_lidar",
-                                    msg,
-                                )
-                            )
-                        else:
-                            msg = get_remove_imagemarkers(sensor_id, "LIDAR_TOP", msg.header.stamp)
-                            non_keyframe_sensor_msgs.append(
-                                (
-                                    msg.header.stamp.to_nsec(),
-                                    topic + "/image_markers_lidar",
+                                    msg.points[0].timestamp.ToNanoseconds(),
+                                    topic + "/image_annotations_lidar",
                                     msg,
                                 )
                             )
@@ -864,11 +819,11 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # sort and publish the non-keyframe sensor msgs
             non_keyframe_sensor_msgs.sort(key=lambda x: x[0])
-            for (_, topic, msg) in non_keyframe_sensor_msgs:
+            for (timestamp, topic, msg) in non_keyframe_sensor_msgs:
                 if hasattr(msg, "header"):
                     rosmsg_writer.write_message(topic, msg, msg.header.stamp)
                 else:
-                    protobuf_writer.write_message(topic, msg, msg.timestamp.ToNanoseconds())
+                    protobuf_writer.write_message(topic, msg, timestamp)
 
             # move to the next sample
             cur_sample = nusc.get("sample", cur_sample["next"]) if cur_sample.get("next") != "" else None
