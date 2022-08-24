@@ -32,7 +32,8 @@ from foxglove.Vector3_pb2 import Vector3
 from ProtobufWriter import ProtobufWriter
 from RosmsgWriter import RosmsgWriter
 
-TURBOMAP_DATA = json.load(open(Path(__file__).parent / "turbomap.json"))
+with open(Path(__file__).parent / "turbomap.json") as f:
+    TURBOMAP_DATA = np.array(json.load(f))
 
 
 def load_bitmap(dataroot: str, map_name: str, layer_name: str) -> np.ndarray:
@@ -189,17 +190,21 @@ def make_color(rgb, a=1):
     return c
 
 
+# See:
+# https://ai.googleblog.com/2019/08/turbo-improved-rainbow-colormap-for.html
+# https://gist.github.com/mikhailov-work/ee72ba4191942acecc03fe6da94fc73f
 def turbomap(x):
-    colormap = TURBOMAP_DATA
-    x = max(0.0, min(1.0, x))
-    a = int(x * 255.0)
-    b = min(255, a + 1)
-    f = x * 255.0 - a
-    return [
-        colormap[a][0] + (colormap[b][0] - colormap[a][0]) * f,
-        colormap[a][1] + (colormap[b][1] - colormap[a][1]) * f,
-        colormap[a][2] + (colormap[b][2] - colormap[a][2]) * f,
-    ]
+    np.clip(x, 0, 1, out=x)
+    x *= 255
+    a = x.astype(np.uint8)
+    x -= a  # compute "f" in place
+    b = np.minimum(254, a)
+    np.add(b, 1, out=b)
+    color_a = TURBOMAP_DATA[a]
+    color_b = TURBOMAP_DATA[b]
+    color_b -= color_a
+    color_b *= x[:, np.newaxis]
+    return np.add(color_a, color_b, out=color_b)
 
 
 def get_categories(nusc, first_sample):
@@ -316,7 +321,6 @@ def get_lidar_imagemarkers(nusc, sample_lidar, sample_data, frame_id):
         render_intensity=True,
     )
     points = points.transpose()
-    coloring = [turbomap(c) for c in coloring]
 
     marker = ImageMarker()
     marker.header.frame_id = frame_id
@@ -327,7 +331,7 @@ def get_lidar_imagemarkers(nusc, sample_lidar, sample_data, frame_id):
     marker.action = ImageMarker.ADD
     marker.scale = 2.0
     marker.points = [make_point2d(p) for p in points]
-    marker.outline_colors = [make_color(c) for c in coloring]
+    marker.outline_colors = [make_color(c) for c in turbomap(coloring)]
     return marker
 
 
