@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional
 from io import BytesIO
 from mcap_protobuf.schema import register_schema
 
+
 class ProtobufWriter:
     def __init__(self, output):
         self.__writer = output

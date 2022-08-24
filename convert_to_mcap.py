@@ -126,7 +126,7 @@ def derive_latlon(location: str, pose: Dict[str, float]):
     ts = get_time(pose)
     x, y = pose["translation"][:2]
     bearing = math.atan(x / y)
-    distance = math.sqrt(x**2 + y**2)
+    distance = math.sqrt(x ** 2 + y ** 2)
     lat, lon = get_coordinate(reference_lat, reference_lon, bearing, distance)
     return lat, lon, ts
 
@@ -227,15 +227,16 @@ def get_categories(nusc, first_sample):
 
 
 PCD_TO_PACKED_ELEMENT_TYPE_MAP = {
-    ('I', 1): PackedElementField.INT8,
-    ('U', 1): PackedElementField.UINT8,
-    ('I', 2): PackedElementField.INT16,
-    ('U', 2): PackedElementField.UINT16,
-    ('I', 4): PackedElementField.INT32,
-    ('U', 4): PackedElementField.UINT32,
-    ('F', 4): PackedElementField.FLOAT32,
-    ('F', 8): PackedElementField.FLOAT64,
+    ("I", 1): PackedElementField.INT8,
+    ("U", 1): PackedElementField.UINT8,
+    ("I", 2): PackedElementField.INT16,
+    ("U", 2): PackedElementField.UINT16,
+    ("I", 4): PackedElementField.INT32,
+    ("U", 4): PackedElementField.UINT32,
+    ("F", 4): PackedElementField.FLOAT32,
+    ("F", 8): PackedElementField.FLOAT64,
 }
+
 
 def get_radar(data_path, sample_data, frame_id) -> PointCloud:
     pc_filename = data_path / sample_data["filename"]
