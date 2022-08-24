@@ -31,6 +31,7 @@ from foxglove.Quaternion_pb2 import Quaternion as foxglove_Quaternion
 from foxglove.Vector3_pb2 import Vector3
 from ProtobufWriter import ProtobufWriter
 from RosmsgWriter import RosmsgWriter
+from foxglove.SceneUpdate_pb2 import SceneUpdate
 
 TURBOMAP_DATA = json.load(open(Path(__file__).parent / "turbomap.json"))
 
@@ -781,27 +782,36 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             rosmsg_writer.write_message("/gps", gps, stamp)
 
             # publish /markers/annotations
-            marker_array = MarkerArray()
+            scene_update = SceneUpdate()
             for annotation_id in cur_sample["anns"]:
                 ann = nusc.get("sample_annotation", annotation_id)
-                marker_id = int(ann["instance_token"][:4], 16)
+                marker_id = ann["instance_token"][:4]
                 c = np.array(nusc.explorer.get_color(ann["category_name"])) / 255.0
 
-                marker = Marker()
-                marker.header.frame_id = "map"
-                marker.header.stamp = stamp
-                marker.id = marker_id
-                marker.ns = ann["category_name"]
-                marker.text = ann["instance_token"][:4]
-                marker.type = Marker.CUBE
-                marker.pose = get_pose(ann)
-                marker.frame_locked = True
-                marker.scale.x = ann["size"][1]
-                marker.scale.y = ann["size"][0]
-                marker.scale.z = ann["size"][2]
-                marker.color = make_color(c, 0.5)
-                marker_array.markers.append(marker)
-            rosmsg_writer.write_message("/markers/annotations", marker_array, stamp)
+                entity = scene_update.entities.add()
+                entity.frame_id = "map"
+                entity.timestamp.seconds = stamp.secs
+                entity.timestamp.nanos = stamp.nsecs
+                entity.id = marker_id
+                entity.frame_locked = True
+                cube = entity.cubes.add()
+                pose = get_pose(ann)
+                cube.pose.position.x = pose.position.x
+                cube.pose.position.y = pose.position.y
+                cube.pose.position.z = pose.position.z
+                cube.pose.orientation.x = pose.orientation.x
+                cube.pose.orientation.y = pose.orientation.y
+                cube.pose.orientation.z = pose.orientation.z
+                cube.pose.orientation.w = pose.orientation.w
+                cube.size.x = ann["size"][1]
+                cube.size.y = ann["size"][0]
+                cube.size.z = ann["size"][2]
+                color = make_color(c, 0.5)
+                cube.color.r = color.r
+                cube.color.g = color.g
+                cube.color.b = color.b
+                cube.color.a = color.a
+            protobuf_writer.write_message("/markers/annotations", scene_update, stamp.to_nsec())
 
             # publish /markers/car
             car_marker_array = MarkerArray()
