@@ -28,10 +28,10 @@ from foxglove.FrameTransform_pb2 import FrameTransform
 from foxglove.PackedElementField_pb2 import PackedElementField
 from foxglove.PointCloud_pb2 import PointCloud
 from foxglove.Quaternion_pb2 import Quaternion as foxglove_Quaternion
+from foxglove.SceneUpdate_pb2 import SceneUpdate
 from foxglove.Vector3_pb2 import Vector3
 from ProtobufWriter import ProtobufWriter
 from RosmsgWriter import RosmsgWriter
-from foxglove.SceneUpdate_pb2 import SceneUpdate
 
 TURBOMAP_DATA = json.load(open(Path(__file__).parent / "turbomap.json"))
 
