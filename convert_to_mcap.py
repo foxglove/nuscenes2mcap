@@ -1,40 +1,36 @@
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+from typing import Dict, Tuple
+
+import numpy as np
+import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from foxglove_msgs.msg import ImageMarkerArray
-from geometry_msgs.msg import Point, Pose, PoseStamped, Transform, TransformStamped
+from geometry_msgs.msg import Point, Pose, PoseStamped
+from mcap.mcap0.writer import Writer
 from nav_msgs.msg import OccupancyGrid, Odometry
 from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.eval.common.utils import quaternion_yaw
 from nuscenes.map_expansion.map_api import NuScenesMap
 from nuscenes.nuscenes import NuScenes
+from PIL import Image
 from pypcd import pypcd
 from pyquaternion import Quaternion
-from sensor_msgs.msg import (
-    CameraInfo,
-    CompressedImage,
-    Imu,
-    NavSatFix,
-)
+from sensor_msgs.msg import CameraInfo, CompressedImage, Imu, NavSatFix
 from std_msgs.msg import ColorRGBA
-from tf2_msgs.msg import TFMessage
 from tqdm import tqdm
-from typing import Tuple, Dict
 from visualization_msgs.msg import ImageMarker, Marker, MarkerArray
-from PIL import Image
-from foxglove.PointCloud_pb2 import PointCloud
+
+from foxglove.FrameTransform_pb2 import FrameTransform
 from foxglove.PackedElementField_pb2 import PackedElementField
-
-import math
-import argparse
-import numpy as np
-import os
-import rospy
-
-from mcap.mcap0.writer import Writer
-from RosmsgWriter import RosmsgWriter
+from foxglove.PointCloud_pb2 import PointCloud
+from foxglove.Quaternion_pb2 import Quaternion as foxglove_Quaternion
+from foxglove.Vector3_pb2 import Vector3
 from ProtobufWriter import ProtobufWriter
-import json
-from pathlib import Path
-
+from RosmsgWriter import RosmsgWriter
 
 TURBOMAP_DATA = json.load(open(Path(__file__).parent / "turbomap.json"))
 
@@ -129,18 +125,12 @@ def derive_latlon(location: str, pose: Dict[str, float]):
     return lat, lon, ts
 
 
-def get_transform(data):
-    t = Transform()
-    t.translation.x = data["translation"][0]
-    t.translation.y = data["translation"][1]
-    t.translation.z = data["translation"][2]
+def get_translation(data):
+    return Vector3(x=data["translation"][0], y=data["translation"][1], z=data["translation"][2])
 
-    t.rotation.w = data["rotation"][0]
-    t.rotation.x = data["rotation"][1]
-    t.rotation.y = data["rotation"][2]
-    t.rotation.z = data["rotation"][3]
 
-    return t
+def get_rotation(data):
+    return foxglove_Quaternion(x=data["rotation"][1], y=data["rotation"][2], z=data["rotation"][3], w=data["rotation"][0])
 
 
 def get_pose(data):
@@ -456,46 +446,25 @@ def get_basic_can_msg(name, diag_data):
     return (msg.header.stamp, "/diagnostics", msg)
 
 
-def get_tfs(nusc, sample):
-    sample_lidar = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
-    ego_pose = nusc.get("ego_pose", sample_lidar["ego_pose_token"])
-    stamp = get_time(ego_pose)
-
-    transforms = []
-
-    # create ego transform
-    ego_tf = TransformStamped()
-    ego_tf.header.frame_id = "map"
-    ego_tf.header.stamp = stamp
+def get_ego_tf(ego_pose):
+    ego_tf = FrameTransform()
+    ego_tf.parent_frame_id = "map"
+    ego_tf.timestamp.FromMicroseconds(ego_pose["timestamp"])
     ego_tf.child_frame_id = "base_link"
-    ego_tf.transform = get_transform(ego_pose)
-    transforms.append(ego_tf)
-
-    for (sensor_id, sample_token) in sample["data"].items():
-        sample_data = nusc.get("sample_data", sample_token)
-
-        # create sensor transform
-        sensor_tf = TransformStamped()
-        sensor_tf.header.frame_id = "base_link"
-        sensor_tf.header.stamp = stamp
-        sensor_tf.child_frame_id = sensor_id
-        sensor_tf.transform = get_transform(nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"]))
-        transforms.append(sensor_tf)
-
-    return transforms
+    ego_tf.translation.CopyFrom(get_translation(ego_pose))
+    ego_tf.rotation.CopyFrom(get_rotation(ego_pose))
+    return ego_tf
 
 
-def get_tfmessage(nusc, sample):
-    # get transforms for the current sample
-    tf_array = TFMessage()
-    tf_array.transforms = get_tfs(nusc, sample)
-
-    # add transforms from the next sample to enable interpolation
-    next_sample = nusc.get("sample", sample["next"]) if sample.get("next") != "" else None
-    if next_sample is not None:
-        tf_array.transforms += get_tfs(nusc, next_sample)
-
-    return tf_array
+def get_sensor_tf(nusc, sensor_id, sample_data):
+    sensor_tf = FrameTransform()
+    sensor_tf.parent_frame_id = "base_link"
+    sensor_tf.timestamp.FromMicroseconds(sample_data["timestamp"])
+    sensor_tf.child_frame_id = sensor_id
+    calibrated_sensor = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
+    sensor_tf.translation.CopyFrom(get_translation(calibrated_sensor))
+    sensor_tf.rotation.CopyFrom(get_rotation(calibrated_sensor))
+    return sensor_tf
 
 
 def scene_bounding_box(nusc, scene, nusc_map, padding=75.0):
@@ -642,6 +611,17 @@ class Collector:
         self.colors.append(color)
 
 
+def get_num_sample_data(nusc: NuScenes, scene):
+    num_sample_data = 0
+    sample = nusc.get("sample", scene["first_sample_token"])
+    for sample_token in sample["data"].values():
+        sample_data = nusc.get("sample_data", sample_token)
+        while sample_data is not None:
+            num_sample_data += 1
+            sample_data = nusc.get("sample_data", sample_data["next"]) if sample_data["next"] != "" else None
+    return num_sample_data
+
+
 def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepath):
     scene_name = scene["name"]
     log = nusc.get("log", scene["log_token"])
@@ -655,7 +635,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
     print(f"vehicle is {log['vehicle']}")
 
     cur_sample = nusc.get("sample", scene["first_sample_token"])
-    pbar = tqdm(total=scene["nbr_samples"], unit="sample", desc=f"{scene_name} Samples", leave=False)
+    pbar = tqdm(total=get_num_sample_data(nusc, scene), unit="sample_data", desc=f"{scene_name} Sample Data", leave=False)
 
     can_parsers = [
         [nusc_can.get_messages(scene_name, "ms_imu"), 0, get_imu_msg],
@@ -715,7 +695,6 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         last_map_stamp = stamp
 
         while cur_sample is not None:
-            pbar.update(1)
             sample_lidar = nusc.get("sample_data", cur_sample["data"]["LIDAR_TOP"])
             ego_pose = nusc.get("ego_pose", sample_lidar["ego_pose_token"])
             stamp = get_time(ego_pose)
@@ -731,7 +710,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # write CAN messages to /pose, /odom, and /diagnostics
             can_msg_events = []
-            for i in tqdm(range(len(can_parsers)), desc="CAN messages", leave=False):
+            for i in range(len(can_parsers)):
                 (can_msgs, index, msg_func) = can_parsers[i]
                 while index < len(can_msgs) and get_utime(can_msgs[index]) < stamp:
                     can_msg_events.append(msg_func(can_msgs[index]))
@@ -742,16 +721,19 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 rosmsg_writer.write_message(topic, msg, msg_stamp)
 
             # publish /tf
-            tf_array = get_tfmessage(nusc, cur_sample)
-            rosmsg_writer.write_message("/tf", tf_array, stamp)
+            protobuf_writer.write_message("/tf", get_ego_tf(ego_pose), stamp.to_nsec())
 
             # /driveable_area occupancy grid
             write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp)
 
             # iterate sensors
-            for (sensor_id, sample_token) in tqdm(cur_sample["data"].items(), desc="Sensors", leave=False):
+            for (sensor_id, sample_token) in cur_sample["data"].items():
+                pbar.update(1)
                 sample_data = nusc.get("sample_data", sample_token)
                 topic = "/" + sensor_id
+
+                # create sensor transform
+                protobuf_writer.write_message("/tf", get_sensor_tf(nusc, sensor_id, sample_data), stamp.to_nsec())
 
                 # write the sensor data
                 if sample_data["sensor_modality"] == "radar":
@@ -795,12 +777,12 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             gps.status.service = 1
             gps.latitude = lat
             gps.longitude = lon
-            gps.altitude = get_transform(ego_pose).translation.z
+            gps.altitude = get_translation(ego_pose).z
             rosmsg_writer.write_message("/gps", gps, stamp)
 
             # publish /markers/annotations
             marker_array = MarkerArray()
-            for annotation_id in tqdm(cur_sample["anns"], desc="Annotations", leave=False):
+            for annotation_id in cur_sample["anns"]:
                 ann = nusc.get("sample_annotation", annotation_id)
                 marker_id = int(ann["instance_token"][:4], 16)
                 c = np.array(nusc.explorer.get_color(ann["category_name"])) / 255.0
@@ -828,7 +810,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # collect all sensor frames after this sample but before the next sample
             non_keyframe_sensor_msgs = []
-            for (sensor_id, sample_token) in tqdm(cur_sample["data"].items(), desc="Sensors", leave=False):
+            for (sensor_id, sample_token) in cur_sample["data"].items():
                 topic = "/" + sensor_id
 
                 next_sample_token = nusc.get("sample_data", sample_token)["next"]
@@ -838,6 +820,11 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                     #     break
                     if next_sample_data["is_key_frame"]:
                         break
+
+                    pbar.update(1)
+                    ego_pose = nusc.get("ego_pose", next_sample_data["ego_pose_token"])
+                    ego_tf = get_ego_tf(ego_pose)
+                    non_keyframe_sensor_msgs.append((ego_tf.timestamp.ToNanoseconds(), "/tf", ego_tf))
 
                     if next_sample_data["sensor_modality"] == "radar":
                         msg = get_radar(data_path, next_sample_data, sensor_id)
