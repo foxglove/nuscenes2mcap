@@ -327,7 +327,7 @@ def write_boxes_image_annotations(nusc, protobuf_writer, anns, sample_data, fram
     for c in collector.colors:
         ann.outline_colors.add(r=c[0], g=c[1], b=c[2], a=1)
 
-    protobuf_writer.write_message(topic_ns + "/image_annotations_annotations", msg, ann.timestamp.ToNanoseconds())
+    protobuf_writer.write_message(topic_ns + "/annotations", msg, ann.timestamp.ToNanoseconds())
 
 
 def write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp):
@@ -714,7 +714,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
                 if sample_data["sensor_modality"] == "camera":
                     msg = get_lidar_image_annotations(nusc, sample_lidar, sample_data, sensor_id)
-                    protobuf_writer.write_message(topic + "/image_annotations_lidar", msg, stamp.to_nsec())
+                    protobuf_writer.write_message(topic + "/lidar", msg, stamp.to_nsec())
                     write_boxes_image_annotations(
                         nusc,
                         protobuf_writer,
@@ -810,7 +810,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                             non_keyframe_sensor_msgs.append(
                                 (
                                     msg.points[0].timestamp.ToNanoseconds(),
-                                    topic + "/image_annotations_lidar",
+                                    topic + "/lidar",
                                     msg,
                                 )
                             )
