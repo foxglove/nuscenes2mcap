@@ -6,15 +6,13 @@ from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.eval.common.utils import quaternion_yaw
 from nuscenes.map_expansion.map_api import NuScenesMap
 from nuscenes.nuscenes import NuScenes
-from pypcd import numpy_pc2, pypcd
+from pypcd import pypcd
 from pyquaternion import Quaternion
 from sensor_msgs.msg import (
     CameraInfo,
     CompressedImage,
     Imu,
     NavSatFix,
-    PointField,
-    PointCloud2,
 )
 from std_msgs.msg import ColorRGBA
 from tf2_msgs.msg import TFMessage
@@ -22,6 +20,8 @@ from tqdm import tqdm
 from typing import Tuple, Dict
 from visualization_msgs.msg import ImageMarker, Marker, MarkerArray
 from PIL import Image
+from foxglove.PointCloud_pb2 import PointCloud
+from foxglove.PackedElementField_pb2 import PackedElementField
 
 import math
 import argparse
@@ -31,6 +31,7 @@ import rospy
 
 from mcap.mcap0.writer import Writer
 from RosmsgWriter import RosmsgWriter
+from ProtobufWriter import ProtobufWriter
 import json
 from pathlib import Path
 
@@ -223,12 +224,32 @@ def get_categories(nusc, first_sample):
     return categories
 
 
-def get_radar(data_path, sample_data, frame_id):
+PCD_TO_PACKED_ELEMENT_TYPE_MAP = {
+    ("I", 1): PackedElementField.INT8,
+    ("U", 1): PackedElementField.UINT8,
+    ("I", 2): PackedElementField.INT16,
+    ("U", 2): PackedElementField.UINT16,
+    ("I", 4): PackedElementField.INT32,
+    ("U", 4): PackedElementField.UINT32,
+    ("F", 4): PackedElementField.FLOAT32,
+    ("F", 8): PackedElementField.FLOAT64,
+}
+
+
+def get_radar(data_path, sample_data, frame_id) -> PointCloud:
     pc_filename = data_path / sample_data["filename"]
     pc = pypcd.PointCloud.from_path(pc_filename)
-    msg = numpy_pc2.array_to_pointcloud2(pc.pc_data)
-    msg.header.frame_id = frame_id
-    msg.header.stamp = get_time(sample_data)
+    msg = PointCloud()
+    msg.frame_id = frame_id
+    msg.timestamp.FromMicroseconds(sample_data["timestamp"])
+    offset = 0
+    for name, size, count, ty in zip(pc.fields, pc.size, pc.count, pc.type):
+        assert count == 1
+        msg.fields.add(name=name, offset=offset, type=PCD_TO_PACKED_ELEMENT_TYPE_MAP[(ty, size)])
+        offset += size
+
+    msg.point_stride = offset
+    msg.data = pc.pc_data.tobytes()
     return msg
 
 
@@ -280,29 +301,19 @@ def get_camera_info(nusc, sample_data, frame_id):
     return msg_info
 
 
-def get_lidar(data_path, sample_data, frame_id):
+def get_lidar(data_path, sample_data, frame_id) -> PointCloud:
     pc_filename = data_path / sample_data["filename"]
-    pc_filesize = os.stat(pc_filename).st_size
 
     with open(pc_filename, "rb") as pc_file:
-        msg = PointCloud2()
-        msg.header.frame_id = frame_id
-        msg.header.stamp = get_time(sample_data)
-
-        msg.fields = [
-            PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
-            PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
-            PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
-            PointField(name="intensity", offset=12, datatype=PointField.FLOAT32, count=1),
-            PointField(name="ring", offset=16, datatype=PointField.FLOAT32, count=1),
-        ]
-
-        msg.is_bigendian = False
-        msg.is_dense = True
-        msg.point_step = len(msg.fields) * 4  # 4 bytes per field
-        msg.row_step = pc_filesize
-        msg.width = round(pc_filesize / msg.point_step)
-        msg.height = 1  # unordered
+        msg = PointCloud()
+        msg.frame_id = frame_id
+        msg.timestamp.FromMicroseconds(sample_data["timestamp"])
+        msg.fields.add(name="x", offset=0, type=PackedElementField.FLOAT32),
+        msg.fields.add(name="y", offset=4, type=PackedElementField.FLOAT32),
+        msg.fields.add(name="z", offset=8, type=PackedElementField.FLOAT32),
+        msg.fields.add(name="intensity", offset=12, type=PackedElementField.FLOAT32),
+        msg.fields.add(name="ring", offset=16, type=PackedElementField.FLOAT32),
+        msg.point_stride = len(msg.fields) * 4  # 4 bytes per field
         msg.data = pc_file.read()
         return msg
 
@@ -676,8 +687,9 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
     with open(filepath, "wb") as fp:
         print(f"Writing to {filepath}")
         writer = Writer(fp)
+        protobuf_writer = ProtobufWriter(writer)
         rosmsg_writer = RosmsgWriter(writer)
-        writer.start(profile="ros1", library="nuscenes2mcap")
+        writer.start(profile="", library="nuscenes2mcap")
 
         writer.add_metadata(
             "scene-info",
@@ -744,10 +756,10 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 # write the sensor data
                 if sample_data["sensor_modality"] == "radar":
                     msg = get_radar(data_path, sample_data, sensor_id)
-                    rosmsg_writer.write_message(topic, msg, stamp)
+                    protobuf_writer.write_message(topic, msg, stamp.to_nsec())
                 elif sample_data["sensor_modality"] == "lidar":
                     msg = get_lidar(data_path, sample_data, sensor_id)
-                    rosmsg_writer.write_message(topic, msg, stamp)
+                    protobuf_writer.write_message(topic, msg, stamp.to_nsec())
                 elif sample_data["sensor_modality"] == "camera":
                     msg = get_camera(data_path, sample_data, sensor_id)
                     rosmsg_writer.write_message(topic + "/image_rect_compressed", msg, stamp)
@@ -829,10 +841,10 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
                     if next_sample_data["sensor_modality"] == "radar":
                         msg = get_radar(data_path, next_sample_data, sensor_id)
-                        non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic, msg))
+                        non_keyframe_sensor_msgs.append((msg.timestamp.ToNanoseconds(), topic, msg))
                     elif next_sample_data["sensor_modality"] == "lidar":
                         msg = get_lidar(data_path, next_sample_data, sensor_id)
-                        non_keyframe_sensor_msgs.append((msg.header.stamp.to_nsec(), topic, msg))
+                        non_keyframe_sensor_msgs.append((msg.timestamp.ToNanoseconds(), topic, msg))
                     elif next_sample_data["sensor_modality"] == "camera":
                         msg = get_camera(data_path, next_sample_data, sensor_id)
                         camera_stamp_nsec = msg.header.stamp.to_nsec()
@@ -866,7 +878,10 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             # sort and publish the non-keyframe sensor msgs
             non_keyframe_sensor_msgs.sort(key=lambda x: x[0])
             for (_, topic, msg) in non_keyframe_sensor_msgs:
-                rosmsg_writer.write_message(topic, msg, msg.header.stamp)
+                if hasattr(msg, "header"):
+                    rosmsg_writer.write_message(topic, msg, msg.header.stamp)
+                else:
+                    protobuf_writer.write_message(topic, msg, msg.timestamp.ToNanoseconds())
 
             # move to the next sample
             cur_sample = nusc.get("sample", cur_sample["next"]) if cur_sample.get("next") != "" else None

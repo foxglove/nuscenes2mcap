@@ -22,4 +22,4 @@ jobs:
       - run: pip install pipenv
       - run: pipenv install --dev --deploy
       - run: pipenv run python -m flake8
-      - run: pipenv run black --check --diff --color --line-length 160 .
+      - run: pipenv run black --check --diff --color .

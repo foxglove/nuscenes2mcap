@@ -1,0 +1,3 @@
+[tool.black]
+exclude = "foxglove/.*_pb2.py.*"
+line-length = 160
