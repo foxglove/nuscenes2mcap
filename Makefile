@@ -1,6 +1,4 @@
-
-
-SCRATCH_DISK_DEVICE = /dev/scratch0
+SCRATCH_DISK_DEVICE = /dev/nvme0n1
 SCRATCH_DISK_MOUNTPOINT = /media/scratch
 ZIP_DOWNLOAD_PATH = $(SCRATCH_DISK_MOUNTPOINT)/zip
 DATASET_PATH = $(SCRATCH_DISK_MOUNTPOINT)/dataset
@@ -27,7 +25,15 @@ FULL_DATASET_INPUTS = \
 
 CONVERTER_IMAGE_NAME = "mcap_converter"
 
-.scratch-disk-format.stamp:
+.apt-install.stamp:
+	sudo apt-get install -y --no-install-recommends \
+		unzip build-essential docker.io e2fsprogs
+	touch $@
+
+.PHONY: apt-install
+apt-install: .apt-install.stamp
+
+.scratch-disk-format.stamp: apt-install
 	@echo Formatting the scratch disk
 	sudo mkfs.ext4 -F $(SCRATCH_DISK_DEVICE)
 	touch $@
@@ -36,7 +42,7 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 	@echo mounting the scratch disk
 	sudo mkdir -p $(SCRATCH_DISK_MOUNTPOINT)
 	sudo mount $(SCRATCH_DISK_DEVICE) $(SCRATCH_DISK_MOUNTPOINT)
-	sudo chmod a+rwc $(SCRATCH_DISK_MOUNTPOINT)
+	sudo chmod a+rwx $(SCRATCH_DISK_MOUNTPOINT)
 	touch $@
 
 .download-aux-inputs.stamp: .mount-scratch-disk.stamp
@@ -49,7 +55,7 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 	touch $@
 
 .download-mini-dataset.stamp: .download-aux-inputs.stamp
-	@echo "downloading mini dataset"
+	@echo downloading mini dataset
 	mkdir -p $(DATASET_PATH)
 	for tgz in $(MINI_DATASET_INPUTS); do \
 		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | tar -xzC $(DATASET_PATH); \
@@ -59,7 +65,7 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 .PHONY: download-mini-dataset
 download-mini-dataset: .download-mini-dataset.stamp
 
-.download-full-dataset: .mount-scratch-disk.stamp
+.download-full-dataset.stamp: .mount-scratch-disk.stamp
 	@echo "downloading full dataset"
 	mkdir -p $(DATASET_PATH)
 	for tgz in $(FULL_DATASET_INPUTS); do \
@@ -73,10 +79,11 @@ download-full-dataset: .download-full-dataset.stamp .download-aux-inputs.stamp
 .PHONY: convert-mini-dataset
 convert-mini-dataset: converter-image download-mini-dataset
 	docker run -t --rm \
+		--user $(id -u):$(id -g) \
 		-v $(DATASET_PATH):/data \
 		-v $(OUTPUT_PATH):/output \
 		$(CONVERTER_IMAGE_NAME) \
-		python3 to_mcap.py \
+		python3 convert_to_mcap.py \
 		--dataset-name "v1.0-mini" \
 		--data-dir /data \
 		--output-dir /output
@@ -84,10 +91,11 @@ convert-mini-dataset: converter-image download-mini-dataset
 .PHONY: convert-full-dataset
 convert-full-dataset: converter-image download-full-dataset
 	docker run -t --rm \
+		--user $(id -u):$(id -g) \
 		-v $(DATASET_PATH):/data \
 		-v $(OUTPUT_PATH):/output \
 		$(CONVERTER_IMAGE_NAME) \
-		python3 to_mcap.py \
+		python3 convert_to_mcap.py \
 		--dataset-name "v1.0-trainval" \
 		--data-dir /data \
 		--output-dir /output
@@ -96,7 +104,7 @@ convert-full-dataset: converter-image download-full-dataset
 upload-mcaps: converter-image
 	docker run -t --rm \
 		-v $(OUTPUT_PATH):/output \
-		-e FOXGLOVE_CONSOLE_TOKEN \
+		-e FOXGLOVE_DATA_PLATOFRM_TOKEN \
 		$(CONVERTER_IMAGE_NAME) \
 		python3 upload_mcap.py --skip-existing /output
 
@@ -104,10 +112,10 @@ upload-mcaps: converter-image
 upload-events: converter-image
 	docker run -t --rm \
 		-v $(OUTPUT_PATH):/output \
-		-e FOXGLOVE_CONSOLE_TOKEN \
+		-e FOXGLOVE_DATA_PLATFORM_TOKEN \
 		$(CONVERTER_IMAGE_NAME) \
 		python3 upload_events.py /output
-	
+
 .PHONY: converter-image
 converter-image:
 	docker build -t $(CONVERTER_IMAGE_NAME) .
