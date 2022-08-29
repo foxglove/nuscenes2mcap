@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import numpy as np
+from foxglove.LinePrimitive_pb2 import LinePrimitive
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from foxglove_msgs.msg import ImageMarkerArray
@@ -22,7 +23,7 @@ from pyquaternion import Quaternion
 from sensor_msgs.msg import CameraInfo, CompressedImage, Imu, NavSatFix
 from std_msgs.msg import ColorRGBA
 from tqdm import tqdm
-from visualization_msgs.msg import ImageMarker, Marker, MarkerArray
+from visualization_msgs.msg import ImageMarker
 
 from foxglove.FrameTransform_pb2 import FrameTransform
 from foxglove.PackedElementField_pb2 import PackedElementField
@@ -534,27 +535,25 @@ def get_centerline_markers(nusc, scene, nusc_map, stamp):
         if len(new_pose_list) > 0:
             contained_pose_lists.append(new_pose_list)
 
-    msg = MarkerArray()
+    scene_update = SceneUpdate()
     for i, pose_list in enumerate(contained_pose_lists):
-        marker = Marker()
-        marker.header.frame_id = "map"
-        marker.header.stamp = stamp
-        marker.ns = "centerline"
-        marker.id = i
-        marker.type = Marker.LINE_STRIP
-        marker.action = Marker.ADD
-        marker.frame_locked = True
-        marker.scale.x = 0.1
-        marker.color.r = 51.0 / 255.0
-        marker.color.g = 160.0 / 255.0
-        marker.color.b = 44.0 / 255.0
-        marker.color.a = 1.0
-        marker.pose.orientation.w = 1.0
+        entity = scene_update.entities.add()
+        entity.frame_id = "map"
+        entity.timestamp.FromNanoseconds(stamp.to_nsec())
+        entity.id = f"{i}"
+        entity.frame_locked = True
+        line = entity.lines.add()
+        line.type = LinePrimitive.Type.LINE_STRIP
+        line.thickness = 0.1
+        line.color.r = 51.0 / 255.0
+        line.color.g = 160.0 / 255.0
+        line.color.b = 44.0 / 255.0
+        line.color.a = 1.0
+        line.pose.orientation.w = 1.0
         for pose in pose_list:
-            marker.points.append(Point(pose[0], pose[1], 0))
-        msg.markers.append(marker)
+            line.points.add(x=pose[0], y=pose[1], z=0)
 
-    return msg
+    return scene_update
 
 
 def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
@@ -576,27 +575,21 @@ def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
     return min(candidates, key=lambda x: x[0])[1]
 
 
-def get_car_marker(stamp):
-    marker = Marker()
-    marker.header.frame_id = "base_link"
-    marker.header.stamp = stamp
-    marker.id = 99999999
-    marker.ns = "car"
-    marker.type = Marker.MESH_RESOURCE
-    marker.pose.position.x = 1
-    marker.pose.position.y = 0
-    marker.pose.position.z = 0
-    marker.pose.orientation.w = 1
-    marker.pose.orientation.x = 0
-    marker.pose.orientation.y = 0
-    marker.pose.orientation.z = 0
-    marker.frame_locked = True
-    marker.scale.x = 1
-    marker.scale.y = 1
-    marker.scale.z = 1
-    marker.mesh_resource = "https://assets.foxglove.dev/NuScenes_car_uncompressed.glb"
-    marker.mesh_use_embedded_materials = True
-    return marker
+def get_car_scene_update(stamp) -> SceneUpdate:
+    scene_update = SceneUpdate()
+    entity = scene_update.entities.add()
+    entity.frame_id = "base_link"
+    entity.timestamp.FromNanoseconds(stamp)
+    entity.id = "car"
+    entity.frame_locked = True
+    model = entity.models.add()
+    model.pose.position.x = 1
+    model.pose.orientation.w = 1
+    model.scale.x = 1
+    model.scale.y = 1
+    model.scale.z = 1
+    model.url = "https://assets.foxglove.dev/NuScenes_car_uncompressed.glb"
+    return scene_update
 
 
 class Collector:
@@ -696,7 +689,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         map_msg = get_scene_map(nusc, scene, nusc_map, image, stamp)
         centerlines_msg = get_centerline_markers(nusc, scene, nusc_map, stamp)
         rosmsg_writer.write_message("/map", map_msg, stamp)
-        rosmsg_writer.write_message("/semantic_map", centerlines_msg, stamp)
+        protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
         last_map_stamp = stamp
 
         while cur_sample is not None:
@@ -707,10 +700,10 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             # write map topics every two seconds
             if stamp - rospy.Duration(2.0) >= last_map_stamp:
                 map_msg.header.stamp = stamp
-                for marker in centerlines_msg.markers:
-                    marker.header.stamp = stamp
+                for entity in centerlines_msg.entities:
+                    entity.timestamp.FromNanoseconds(stamp.to_nsec())
                 rosmsg_writer.write_message("/map", map_msg, stamp)
-                rosmsg_writer.write_message("/semantic_map", centerlines_msg, stamp)
+                protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
                 last_map_stamp = stamp
 
             # write CAN messages to /pose, /odom, and /diagnostics
@@ -818,9 +811,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             protobuf_writer.write_message("/markers/annotations", scene_update, stamp.to_nsec())
 
             # publish /markers/car
-            car_marker_array = MarkerArray()
-            car_marker_array.markers.append(get_car_marker(stamp))
-            rosmsg_writer.write_message("/markers/car", car_marker_array, stamp)
+            protobuf_writer.write_message("/markers/car", get_car_scene_update(stamp.to_nsec()), stamp.to_nsec())
 
             # collect all sensor frames after this sample but before the next sample
             non_keyframe_sensor_msgs = []
