@@ -532,7 +532,7 @@ def get_centerline_markers(nusc, scene, nusc_map, stamp):
         for pose in pose_list:
             if rectContains(bbox, pose):
                 new_pose_list.append(pose)
-        if len(new_pose_list) > 0:
+        if len(new_pose_list) > 1:
             contained_pose_lists.append(new_pose_list)
 
     scene_update = SceneUpdate()
