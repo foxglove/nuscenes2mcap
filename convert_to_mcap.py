@@ -787,8 +787,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
                 entity = scene_update.entities.add()
                 entity.frame_id = "map"
-                entity.timestamp.seconds = stamp.secs
-                entity.timestamp.nanos = stamp.nsecs
+                entity.timestamp.FromNanoseconds(stamp.to_nsec())
                 entity.id = marker_id
                 entity.frame_locked = True
                 cube = entity.cubes.add()
