@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import numpy as np
-from foxglove.LinePrimitive_pb2 import LinePrimitive
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from foxglove_msgs.msg import ImageMarkerArray
@@ -26,6 +25,7 @@ from tqdm import tqdm
 from visualization_msgs.msg import ImageMarker
 
 from foxglove.FrameTransform_pb2 import FrameTransform
+from foxglove.LinePrimitive_pb2 import LinePrimitive
 from foxglove.PackedElementField_pb2 import PackedElementField
 from foxglove.PointCloud_pb2 import PointCloud
 from foxglove.Quaternion_pb2 import Quaternion as foxglove_Quaternion
