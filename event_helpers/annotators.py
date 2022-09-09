@@ -123,10 +123,19 @@ class Annotator:
         longitudinal_acceleration = imu.linear_acceleration.x
         return self.acc_event_source.tick(longitudinal_acceleration, to_ns(imu.header.stamp))
 
-    def on_marker_array(self, marker_array) -> List[Event]:
-        num_peds = sum(1 for marker in marker_array.markers if marker.ns.startswith("human.pedestrian"))
-        stamp = next((marker.header.stamp for marker in marker_array.markers), None)
-        return self.ped_event_source.tick(num_peds, to_ns(stamp))
+    def on_scene_update(self, scene_update) -> List[Event]:
+        num_peds = 0
+        timestamp = None
+        for entity in scene_update.entities:
+            if timestamp is None:
+                timestamp = entity.timestamp
+            for metadata in entity.metadata:
+                if metadata.key == "category" and metadata.value.startswith("human.pedestrian"):
+                    num_peds += 1
+
+        stamp_ns = timestamp.nanos + (1_000_000_000 * timestamp.seconds)
+
+        return self.ped_event_source.tick(num_peds, stamp_ns)
 
     def on_mcap_end(self) -> List[Event]:
         if self.summary is None:

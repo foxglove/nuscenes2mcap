@@ -8,7 +8,7 @@ from foxglove_data_platform.client import Client
 from mcap.mcap0.reader import make_reader
 
 from sensor_msgs.msg import Imu
-from visualization_msgs.msg import MarkerArray
+from foxglove.SceneUpdate_pb2 import SceneUpdate
 
 from event_helpers.annotators import Annotator
 from event_helpers.client_utils import get_all_events_for_device
@@ -75,10 +75,11 @@ def main():
                     imu.deserialize(message.data)
                     events.extend(annotator.on_imu(imu))
 
-                if schema.name == "visualization_msgs/MarkerArray":
-                    marker_array = MarkerArray()
-                    marker_array.deserialize(message.data)
-                    events.extend(annotator.on_marker_array(marker_array))
+                if schema.name == "foxglove.SceneUpdate":
+                    scene_update = SceneUpdate()
+                    scene_update.ParseFromString(message.data)
+                    print(f"looking at sceneUpdate: {scene_update}")
+                    events.extend(annotator.on_scene_update(scene_update))
 
             events.extend(annotator.on_mcap_end())
 

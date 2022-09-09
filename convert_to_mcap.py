@@ -791,6 +791,9 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 entity.timestamp.FromNanoseconds(stamp.to_nsec())
                 entity.id = marker_id
                 entity.frame_locked = True
+                metadata = entity.metadata.add()
+                metadata.key = "category"
+                metadata.value = ann["category_name"]
                 cube = entity.cubes.add()
                 pose = get_pose(ann)
                 cube.pose.position.x = pose.position.x
