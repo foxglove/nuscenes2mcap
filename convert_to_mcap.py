@@ -391,6 +391,7 @@ def write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp):
     msg.info.height = drivable_area.shape[0]
     msg.info.origin.position.x = -16.0
     msg.info.origin.position.y = -16.0
+    msg.info.origin.position.z = 0.1
     msg.info.origin.orientation.w = 1
     msg.data = drivable_area.flatten().tolist()
 
