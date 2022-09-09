@@ -1,26 +1,22 @@
-from dataclasses import dataclass, field
 from typing import List, Dict
 
-
-@dataclass
-class Event:
-    timestamp_ns: int
-    duration_ns: int
-    metadata: Dict[str, str] = field(default_factory=dict)
+from . import Event
 
 
-def to_ns(rospy_time):
+def to_ns(rospy_time) -> int:
+    """Converts a rospy.Time object to an integer nanosecond count."""
     return rospy_time.nsecs + (1_000_000_000 * rospy_time.secs)
 
 
-class LatchingAnnotator:
+class LatchingEventSource:
     def __init__(self, cooldown_period=100_000_000):
+        """base class for any event source that implements"""
         self._start_time = None
         self._last_activated_time = None
         self._cooldown_period = cooldown_period
 
     def activate(self, value) -> bool:
-        raise NotImplementedError("Implement this method")
+        raise NotImplementedError(f"Implement this method, using {value}")
 
     def event_metadata(self) -> Dict[str, str]:
         raise NotImplementedError("Implement this method")
@@ -60,7 +56,7 @@ class LatchingAnnotator:
         return []
 
 
-class PedestrianAnnotator(LatchingAnnotator):
+class PedestrianEventSource(LatchingEventSource):
     def __init__(self):
         super().__init__()
         self.max_pedestrians = 0
@@ -79,7 +75,7 @@ class PedestrianAnnotator(LatchingAnnotator):
         self.max_pedestrians = 0
 
 
-class AccelerationAnnotator(LatchingAnnotator):
+class AccelerationEventSource(LatchingEventSource):
     def __init__(self):
         super().__init__()
         self.max_acceleration = 0
@@ -100,13 +96,10 @@ class AccelerationAnnotator(LatchingAnnotator):
 
 
 class Annotator:
-    ACCELERATION_THRESHOLD = 1.5
-    PEDESTRIAN_THRESHOLD = 10
-
     def __init__(self):
         self.summary = None
-        self.ped_annotator = PedestrianAnnotator()
-        self.acc_annotator = AccelerationAnnotator()
+        self.ped_event_source = PedestrianEventSource()
+        self.acc_event_source = AccelerationEventSource()
 
     def on_mcap_start(self, summary, scene_info=None) -> List[Event]:
         self.summary = summary
@@ -128,14 +121,16 @@ class Annotator:
 
     def on_imu(self, imu) -> List[Event]:
         longitudinal_acceleration = imu.linear_acceleration.x
-        return self.acc_annotator.tick(longitudinal_acceleration, to_ns(imu.header.stamp))
+        return self.acc_event_source.tick(longitudinal_acceleration, to_ns(imu.header.stamp))
 
     def on_marker_array(self, marker_array) -> List[Event]:
         num_peds = sum(1 for marker in marker_array.markers if marker.ns.startswith("human.pedestrian"))
         stamp = next((marker.header.stamp for marker in marker_array.markers), None)
-        return self.ped_annotator.tick(num_peds, to_ns(stamp))
+        return self.ped_event_source.tick(num_peds, to_ns(stamp))
 
     def on_mcap_end(self) -> List[Event]:
         if self.summary is None:
             return []
-        return self.ped_annotator.finish(self.summary.statistics.message_end_time) + self.acc_annotator.finish(self.summary.statistics.message_end_time)
+        final_ped_events = self.ped_event_source.finish(self.summary.statistics.message_end_time)
+        final_acc_events = self.acc_event_source.finish(self.summary.statistics.message_end_time)
+        return final_ped_events + final_acc_events

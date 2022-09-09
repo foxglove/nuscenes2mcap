@@ -10,7 +10,8 @@ from mcap.mcap0.reader import make_reader
 from sensor_msgs.msg import Imu
 from visualization_msgs.msg import MarkerArray
 
-from events import Annotator
+from event_helpers.annotators import Annotator
+from event_helpers.client_utils import get_all_events_for_device
 
 
 def main():
@@ -82,7 +83,8 @@ def main():
             events.extend(annotator.on_mcap_end())
 
         # save existing events
-        old_events = client.get_events(
+        old_events = get_all_events_for_device(
+            client=client,
             device_id=device_id,
             start=datetime.fromtimestamp(float(summary.statistics.message_start_time) / 1e9),
             end=datetime.fromtimestamp(float(summary.statistics.message_end_time) / 1e9),

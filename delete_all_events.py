@@ -3,6 +3,7 @@ import os
 import sys
 
 from foxglove_data_platform.client import Client
+from event_helpers.client_utils import get_all_events_for_device
 
 
 def main():
@@ -28,14 +29,7 @@ def main():
     # find all the events
     events_to_delete = []
     for device_id in device_ids:
-        LIMIT = 100
-        offset = 0
-        while True:
-            events_returned = client.get_events(device_id=device_id, limit=LIMIT, offset=offset)
-            events_to_delete.extend(events_returned)
-            offset += len(events_returned)
-            if len(events_returned) != LIMIT:
-                break
+        events_to_delete.extend(get_all_events_for_device(client, device_id))
 
     # destroy all events
     for old_event in events_to_delete:
