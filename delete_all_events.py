@@ -38,7 +38,6 @@ def main():
             if len(events_returned) != LIMIT:
                 break
 
-
     # destroy all events
     for old_event in events_to_delete:
         if not args.commit:

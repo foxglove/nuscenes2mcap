@@ -107,7 +107,7 @@ def main():
             if args.commit:
                 client.delete_event(event_id=old_event["id"])
             else:
-                print(f"would event: {old_event}")
+                print(f"would delete: {old_event}")
     return 0
 
 
