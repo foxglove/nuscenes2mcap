@@ -14,6 +14,7 @@ def main():
         help="data platform secret token (if not provided, FOXGLOVE_DATA_PLATFORM_TOKEN from environment is used)",
     )
     parser.add_argument("--commit", "-y", action="store_true", help="actually perform deletions")
+    parser.add_argument("--host", default="api.foxglove.dev", help="custom host to send data to")
     args = parser.parse_args()
     if args.token is None:
         token = os.environ.get("FOXGLOVE_DATA_PLATFORM_TOKEN")
@@ -22,7 +23,7 @@ def main():
             return 1
         args.token = token
 
-    client = Client(token=args.token)
+    client = Client(token=args.token, host=args.host)
     device_ids = [resp["id"] for resp in client.get_devices()]
     print(f"Found events for devices: {device_ids}")
 
