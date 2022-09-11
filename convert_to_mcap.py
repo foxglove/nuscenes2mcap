@@ -372,27 +372,32 @@ def write_boxes_imagemarkers(nusc, rosmsg_writer, anns, sample_data, frame_id, t
     rosmsg_writer.write_message(topic_ns + "/image_markers_annotations", msg, stamp)
 
 
-def write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp):
+def write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp):
     translation = ego_pose["translation"]
     rotation = Quaternion(ego_pose["rotation"])
-    yaw = quaternion_yaw(rotation) / np.pi * 180
+    yaw_radians  = quaternion_yaw(rotation)
+    yaw_degrees = yaw_radians / np.pi * 180
     patch_box = (translation[0], translation[1], 32, 32)
     canvas_size = (patch_box[2] * 10, patch_box[3] * 10)
 
-    drivable_area = nusc_map.get_map_mask(patch_box, yaw, ["drivable_area"], canvas_size)[0]
+    drivable_area = nusc_map.get_map_mask(patch_box, yaw_degrees, ["drivable_area"], canvas_size)[0]
     drivable_area = (drivable_area * 100).astype(np.int8)
 
     msg = OccupancyGrid()
-    msg.header.frame_id = "base_link"
+    msg.header.frame_id = "map"
     msg.header.stamp = stamp
     msg.info.map_load_time = stamp
     msg.info.resolution = 0.1
     msg.info.width = drivable_area.shape[1]
     msg.info.height = drivable_area.shape[0]
-    msg.info.origin.position.x = -16.0
-    msg.info.origin.position.y = -16.0
-    msg.info.origin.position.z = 0.1
-    msg.info.origin.orientation.w = 1
+    msg.info.origin.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians)) 
+    msg.info.origin.position.y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
+    # Drivable area sits 1cm above the map
+    msg.info.origin.position.z = 0.01
+    msg.info.origin.orientation.x = 0
+    msg.info.origin.orientation.y = 0
+    msg.info.origin.orientation.z = math.sin(yaw_radians / 2)
+    msg.info.origin.orientation.w = math.cos(yaw_radians / 2)
     msg.data = drivable_area.flatten().tolist()
 
     rosmsg_writer.write_message("/drivable_area", msg, stamp)
@@ -723,7 +728,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             protobuf_writer.write_message("/tf", get_ego_tf(ego_pose), stamp.to_nsec())
 
             # /driveable_area occupancy grid
-            write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp)
+            write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp)
 
             # iterate sensors
             for (sensor_id, sample_token) in cur_sample["data"].items():
