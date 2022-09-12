@@ -375,7 +375,7 @@ def write_boxes_imagemarkers(nusc, rosmsg_writer, anns, sample_data, frame_id, t
 def write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp):
     translation = ego_pose["translation"]
     rotation = Quaternion(ego_pose["rotation"])
-    yaw_radians  = quaternion_yaw(rotation)
+    yaw_radians = quaternion_yaw(rotation)
     yaw_degrees = yaw_radians / np.pi * 180
     patch_box = (translation[0], translation[1], 32, 32)
     canvas_size = (patch_box[2] * 10, patch_box[3] * 10)
@@ -390,7 +390,7 @@ def write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp):
     msg.info.resolution = 0.1
     msg.info.width = drivable_area.shape[1]
     msg.info.height = drivable_area.shape[0]
-    msg.info.origin.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians)) 
+    msg.info.origin.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians))
     msg.info.origin.position.y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
     # Drivable area sits 1cm above the map
     msg.info.origin.position.z = 0.01

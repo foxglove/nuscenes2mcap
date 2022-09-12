@@ -78,7 +78,6 @@ def main():
                 if schema.name == "foxglove.SceneUpdate":
                     scene_update = SceneUpdate()
                     scene_update.ParseFromString(message.data)
-                    print(f"looking at sceneUpdate: {scene_update}")
                     events.extend(annotator.on_scene_update(scene_update))
 
             events.extend(annotator.on_mcap_end())

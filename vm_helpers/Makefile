@@ -96,7 +96,7 @@ convert-full-dataset: converter-image download-full-dataset
 upload-mcaps: converter-image
 	docker run -t --rm \
 		-v $(OUTPUT_PATH):/output \
-		-e FOXGLOVE_DATA_PLATOFRM_TOKEN \
+		-e FOXGLOVE_DATA_PLATFORM_TOKEN \
 		$(CONVERTER_IMAGE_NAME) \
 		python3 upload_mcap.py /output --host $(DATA_PLATFORM_HOST)
 
@@ -107,7 +107,7 @@ upload-events: converter-image
 		-v $(OUTPUT_PATH):/output \
 		-e FOXGLOVE_DATA_PLATFORM_TOKEN \
 		$(CONVERTER_IMAGE_NAME) \
-		python3 upload_events.py /output --host $(DATA_PLATFORM_HOST)
+		python3 upload_events.py /output --host $(DATA_PLATFORM_HOST) --commit
 
 
 .PHONY: delete-all-events
@@ -115,7 +115,7 @@ delete-all-events: converter-image
 	docker run -t --rm \
 		-e FOXGLOVE_DATA_PLATFORM_TOKEN \
 		$(CONVERTER_IMAGE_NAME) \
-		python3 delete_all_events.py --host $(DATA_PLATFORM_HOST)
+		python3 delete_all_events.py --host $(DATA_PLATFORM_HOST) --commit
 
 
 .PHONY: converter-image

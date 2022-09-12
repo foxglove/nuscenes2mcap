@@ -12,7 +12,7 @@ def fail(msg):
 
 
 def get_device_state(serial):
-    lsblk_result = subprocess.run( ["lsblk", "-Jo", "FSTYPE,SERIAL,MOUNTPOINT,PATH"], capture_output=True, check=True)
+    lsblk_result = subprocess.run(["lsblk", "-Jo", "FSTYPE,SERIAL,MOUNTPOINT,PATH"], capture_output=True, check=True)
     block_devices = json.loads(lsblk_result.stdout)
     for device in block_devices["blockdevices"]:
         if device["serial"] == serial:
@@ -44,7 +44,7 @@ def main():
     state = get_device_state(args.serial)
     if state["fstype"] is None:
         run(["mkfs.ext4", "-F", state["path"]], commit=args.commit)
-    
+
     state = get_device_state(args.serial)
     if state["mountpoint"] is None:
         if not os.path.isdir(args.mountpoint):

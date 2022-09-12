@@ -5,12 +5,7 @@ from typing import Optional
 PAGE_LENGTH = 100
 
 
-def get_all_events_for_device(
-    client: Client,
-    device_id: str,
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None
-):
+def get_all_events_for_device(client: Client, device_id: str, start: Optional[datetime] = None, end: Optional[datetime] = None):
     """The client.get_events API is paginated, meaning to successfully find all events
     we must call the API repeatedly with a changing offset.
     """
