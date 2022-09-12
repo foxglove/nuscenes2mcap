@@ -8,9 +8,10 @@ from foxglove_data_platform.client import Client
 from mcap.mcap0.reader import make_reader
 
 from sensor_msgs.msg import Imu
-from visualization_msgs.msg import MarkerArray
+from foxglove.SceneUpdate_pb2 import SceneUpdate
 
-from events import Annotator
+from event_helpers.annotators import Annotator
+from event_helpers.client_utils import get_all_events_for_device
 
 
 def main():
@@ -21,6 +22,8 @@ def main():
         "-t",
         help="data platform secret token (if not provided, FOXGLOVE_DATA_PLATFORM_TOKEN from environment is used)",
     )
+    parser.add_argument("--host", default="api.foxglove.dev", help="custom host to direct API requests to")
+    parser.add_argument("--commit", "-y", action="store_true", help="actually send the events")
     args = parser.parse_args()
     if args.token is None:
         token = os.environ.get("FOXGLOVE_DATA_PLATFORM_TOKEN")
@@ -29,7 +32,7 @@ def main():
             return 1
         args.token = token
 
-    client = Client(token=args.token)
+    client = Client(token=args.token, host=args.host)
     device_ids = {resp["name"]: resp["id"] for resp in client.get_devices()}
 
     filepaths = []
@@ -72,15 +75,16 @@ def main():
                     imu.deserialize(message.data)
                     events.extend(annotator.on_imu(imu))
 
-                if schema.name == "visualization_msgs/MarkerArray":
-                    marker_array = MarkerArray()
-                    marker_array.deserialize(message.data)
-                    events.extend(annotator.on_marker_array(marker_array))
+                if schema.name == "foxglove.SceneUpdate":
+                    scene_update = SceneUpdate()
+                    scene_update.ParseFromString(message.data)
+                    events.extend(annotator.on_scene_update(scene_update))
 
             events.extend(annotator.on_mcap_end())
 
         # save existing events
-        old_events = client.get_events(
+        old_events = get_all_events_for_device(
+            client=client,
             device_id=device_id,
             start=datetime.fromtimestamp(float(summary.statistics.message_start_time) / 1e9),
             end=datetime.fromtimestamp(float(summary.statistics.message_end_time) / 1e9),
@@ -89,18 +93,24 @@ def main():
         print(f"uploading {len(events)} events for {filepath} ...")
         for event in events:
             # create new events
-            client.create_event(
-                device_id=device_id,
-                time=datetime.fromtimestamp(float(event.timestamp_ns) / 1e9),
-                duration=event.duration_ns,
-                metadata=event.metadata,
-            )
+            if args.commit:
+                client.create_event(
+                    device_id=device_id,
+                    time=datetime.fromtimestamp(float(event.timestamp_ns) / 1e9),
+                    duration=event.duration_ns,
+                    metadata=event.metadata,
+                )
+            else:
+                print(f"would upload: {event}")
 
         # destroy old events once new events have been uploaded
         print(f"deleting {len(old_events)} old events for {filepath} ...")
         for old_event in old_events:
-            client.delete_event(event_id=old_event["id"])
-        return 0
+            if args.commit:
+                client.delete_event(event_id=old_event["id"])
+            else:
+                print(f"would delete: {old_event}")
+    return 0
 
 
 if __name__ == "__main__":
