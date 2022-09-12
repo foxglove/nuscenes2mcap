@@ -1,4 +1,3 @@
-SCRATCH_DISK_DEVICE = /dev/nvme0n1
 SCRATCH_DISK_MOUNTPOINT = /media/scratch
 ZIP_DOWNLOAD_PATH = $(SCRATCH_DISK_MOUNTPOINT)/zip
 DATASET_PATH = $(SCRATCH_DISK_MOUNTPOINT)/dataset
@@ -27,25 +26,17 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 
 .apt-install.stamp:
 	sudo apt-get install -y --no-install-recommends \
-		unzip build-essential docker.io e2fsprogs
+		unzip build-essential docker.io e2fsprogs jq tmux
 	touch $@
 
 .PHONY: apt-install
 apt-install: .apt-install.stamp
 
-.scratch-disk-format.stamp: apt-install
-	@echo Formatting the scratch disk
-	sudo mkfs.ext4 -F $(SCRATCH_DISK_DEVICE)
-	touch $@
+.PHONY: scratch-disk
+scratch-disk: apt-install
+	sudo python3 ready_scratch_disk.py --commit
 
-.mount-scratch-disk.stamp: .scratch-disk-format.stamp
-	@echo mounting the scratch disk
-	sudo mkdir -p $(SCRATCH_DISK_MOUNTPOINT)
-	sudo mount $(SCRATCH_DISK_DEVICE) $(SCRATCH_DISK_MOUNTPOINT)
-	sudo chmod a+rwx $(SCRATCH_DISK_MOUNTPOINT)
-	touch $@
-
-.download-aux-inputs.stamp: .mount-scratch-disk.stamp
+.download-aux-inputs.stamp: scratch-disk
 	@echo downloading CAN and map data
 	mkdir -p $(ZIP_DOWNLOAD_PATH) $(DATASET_PATH)
 	gsutil cp "$(INPUT_BUCKET)/can_bus.zip" "$(ZIP_DOWNLOAD_PATH)/can_bus.zip"
@@ -118,7 +109,7 @@ upload-events: converter-image
 
 .PHONY: converter-image
 converter-image:
-	docker build -t $(CONVERTER_IMAGE_NAME) .
+	docker build -t $(CONVERTER_IMAGE_NAME) ..
 
 .PHONY: clean
 clean:
