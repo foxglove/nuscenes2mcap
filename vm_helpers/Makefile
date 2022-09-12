@@ -2,6 +2,7 @@ SCRATCH_DISK_MOUNTPOINT = /media/scratch
 ZIP_DOWNLOAD_PATH = $(SCRATCH_DISK_MOUNTPOINT)/zip
 DATASET_PATH = $(SCRATCH_DISK_MOUNTPOINT)/dataset
 OUTPUT_PATH = $(SCRATCH_DISK_MOUNTPOINT)/output
+DATA_PLATFORM_HOST ?= api.foxglove.dev
 
 INPUT_BUCKET = gs://nuscenes-all/full/s3.amazonaws.com/data.nuscenes.org/public/v1.0
 
@@ -26,7 +27,7 @@ CONVERTER_IMAGE_NAME = "mcap_converter"
 
 .apt-install.stamp:
 	sudo apt-get install -y --no-install-recommends \
-		unzip build-essential docker.io e2fsprogs jq tmux
+		unzip build-essential docker.io e2fsprogs tmux pv
 	touch $@
 
 .PHONY: apt-install
@@ -49,18 +50,18 @@ scratch-disk: apt-install
 	@echo downloading mini dataset
 	mkdir -p $(DATASET_PATH)
 	for tgz in $(MINI_DATASET_INPUTS); do \
-		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | tar -xzC $(DATASET_PATH); \
+		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | pv | tar -xzC $(DATASET_PATH); \
 	done
 	touch $@
 
 .PHONY: download-mini-dataset
 download-mini-dataset: .download-mini-dataset.stamp
 
-.download-full-dataset.stamp: .mount-scratch-disk.stamp
+.download-full-dataset.stamp: scratch-disk
 	@echo "downloading full dataset"
 	mkdir -p $(DATASET_PATH)
 	for tgz in $(FULL_DATASET_INPUTS); do \
-		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | tar -xC $(DATASET_PATH); \
+		gsutil cp "$(INPUT_BUCKET)/$${tgz}" - | pv | tar -xzC $(DATASET_PATH); \
 	done
 	touch $@
 
@@ -97,7 +98,8 @@ upload-mcaps: converter-image
 		-v $(OUTPUT_PATH):/output \
 		-e FOXGLOVE_DATA_PLATOFRM_TOKEN \
 		$(CONVERTER_IMAGE_NAME) \
-		python3 upload_mcap.py --skip-existing /output
+		python3 upload_mcap.py /output --host $(DATA_PLATFORM_HOST)
+
 
 .PHONY: upload-events
 upload-events: converter-image
@@ -105,7 +107,16 @@ upload-events: converter-image
 		-v $(OUTPUT_PATH):/output \
 		-e FOXGLOVE_DATA_PLATFORM_TOKEN \
 		$(CONVERTER_IMAGE_NAME) \
-		python3 upload_events.py /output
+		python3 upload_events.py /output --host $(DATA_PLATFORM_HOST)
+
+
+.PHONY: delete-all-events
+delete-all-events: converter-image
+	docker run -t --rm \
+		-e FOXGLOVE_DATA_PLATFORM_TOKEN \
+		$(CONVERTER_IMAGE_NAME) \
+		python3 delete_all_events.py --host $(DATA_PLATFORM_HOST)
+
 
 .PHONY: converter-image
 converter-image:
