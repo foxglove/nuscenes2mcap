@@ -14,12 +14,12 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class ModelPrimitive(google.protobuf.message.Message):
-    """A primitive representing a 3D model file loaded from an external URL"""
+    """A primitive representing a 3D model file loaded from an external URL or embedded data"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     POSE_FIELD_NUMBER: builtins.int
     SCALE_FIELD_NUMBER: builtins.int
     COLOR_FIELD_NUMBER: builtins.int
-    EMBEDDED_MATERIALS_FIELD_NUMBER: builtins.int
+    OVERRIDE_COLOR_FIELD_NUMBER: builtins.int
     URL_FIELD_NUMBER: builtins.int
     MEDIA_TYPE_FIELD_NUMBER: builtins.int
     DATA_FIELD_NUMBER: builtins.int
@@ -33,10 +33,10 @@ class ModelPrimitive(google.protobuf.message.Message):
         pass
     @property
     def color(self) -> foxglove.Color_pb2.Color:
-        """Solid color to use for the whole model. If `embedded_materials` is true, this color is blended on top of the embedded material color."""
+        """Solid color to use for the whole model if `override_color` is true."""
         pass
-    embedded_materials: builtins.bool
-    """Whether to use materials embedded in the model, or only the `color`"""
+    override_color: builtins.bool
+    """Whether to use the color specified in `color` instead of any materials embedded in the original model."""
 
     url: typing.Text
     """URL pointing to model file. One of `url` or `data` should be provided."""
@@ -52,11 +52,11 @@ class ModelPrimitive(google.protobuf.message.Message):
         pose: typing.Optional[foxglove.Pose_pb2.Pose] = ...,
         scale: typing.Optional[foxglove.Vector3_pb2.Vector3] = ...,
         color: typing.Optional[foxglove.Color_pb2.Color] = ...,
-        embedded_materials: builtins.bool = ...,
+        override_color: builtins.bool = ...,
         url: typing.Text = ...,
         media_type: typing.Text = ...,
         data: builtins.bytes = ...,
         ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["color",b"color","pose",b"pose","scale",b"scale"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["color",b"color","data",b"data","embedded_materials",b"embedded_materials","media_type",b"media_type","pose",b"pose","scale",b"scale","url",b"url"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["color",b"color","data",b"data","media_type",b"media_type","override_color",b"override_color","pose",b"pose","scale",b"scale","url",b"url"]) -> None: ...
 global___ModelPrimitive = ModelPrimitive

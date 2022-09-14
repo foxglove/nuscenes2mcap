@@ -21,21 +21,23 @@ from pyquaternion import Quaternion
 from sensor_msgs.msg import Imu, NavSatFix
 from std_msgs.msg import ColorRGBA
 from tqdm import tqdm
-from visualization_msgs.msg import Marker, MarkerArray
 
 from foxglove.CameraCalibration_pb2 import CameraCalibration
 from foxglove.CompressedImage_pb2 import CompressedImage
 from foxglove.FrameTransform_pb2 import FrameTransform
 from foxglove.ImageAnnotations_pb2 import ImageAnnotations
+from foxglove.LinePrimitive_pb2 import LinePrimitive
 from foxglove.PackedElementField_pb2 import PackedElementField
 from foxglove.PointCloud_pb2 import PointCloud
 from foxglove.PointsAnnotation_pb2 import PointsAnnotation
 from foxglove.Quaternion_pb2 import Quaternion as foxglove_Quaternion
+from foxglove.SceneUpdate_pb2 import SceneUpdate
 from foxglove.Vector3_pb2 import Vector3
 from ProtobufWriter import ProtobufWriter
 from RosmsgWriter import RosmsgWriter
 
-TURBOMAP_DATA = json.load(open(Path(__file__).parent / "turbomap.json"))
+with open(Path(__file__).parent / "turbomap.json") as f:
+    TURBOMAP_DATA = np.array(json.load(f))
 
 
 def load_bitmap(dataroot: str, map_name: str, layer_name: str) -> np.ndarray:
@@ -192,17 +194,21 @@ def make_color(rgb, a=1):
     return c
 
 
+# See:
+# https://ai.googleblog.com/2019/08/turbo-improved-rainbow-colormap-for.html
+# https://gist.github.com/mikhailov-work/ee72ba4191942acecc03fe6da94fc73f
 def turbomap(x):
-    colormap = TURBOMAP_DATA
-    x = max(0.0, min(1.0, x))
-    a = int(x * 255.0)
-    b = min(255, a + 1)
-    f = x * 255.0 - a
-    return [
-        colormap[a][0] + (colormap[b][0] - colormap[a][0]) * f,
-        colormap[a][1] + (colormap[b][1] - colormap[a][1]) * f,
-        colormap[a][2] + (colormap[b][2] - colormap[a][2]) * f,
-    ]
+    np.clip(x, 0, 1, out=x)
+    x *= 255
+    a = x.astype(np.uint8)
+    x -= a  # compute "f" in place
+    b = np.minimum(254, a)
+    b += 1
+    color_a = TURBOMAP_DATA[a]
+    color_b = TURBOMAP_DATA[b]
+    color_b -= color_a
+    color_b *= x[:, np.newaxis]
+    return np.add(color_a, color_b, out=color_b)
 
 
 def get_categories(nusc, first_sample):
@@ -294,7 +300,6 @@ def get_lidar_image_annotations(nusc, sample_lidar, sample_data, frame_id):
         render_intensity=True,
     )
     points = points.transpose()
-    coloring = [turbomap(c) for c in coloring]
 
     msg = ImageAnnotations()
     ann = msg.points.add()
@@ -303,7 +308,7 @@ def get_lidar_image_annotations(nusc, sample_lidar, sample_data, frame_id):
     ann.thickness = 2
     for p in points:
         ann.points.add(x=p[0], y=p[1])
-    for c in coloring:
+    for c in turbomap(coloring):
         ann.outline_colors.add(r=c[0], g=c[1], b=c[2], a=1)
     return msg
 
@@ -330,26 +335,32 @@ def write_boxes_image_annotations(nusc, protobuf_writer, anns, sample_data, fram
     protobuf_writer.write_message(topic_ns + "/annotations", msg, ann.timestamp.ToNanoseconds())
 
 
-def write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp):
+def write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp):
     translation = ego_pose["translation"]
     rotation = Quaternion(ego_pose["rotation"])
-    yaw = quaternion_yaw(rotation) / np.pi * 180
+    yaw_radians = quaternion_yaw(rotation)
+    yaw_degrees = yaw_radians / np.pi * 180
     patch_box = (translation[0], translation[1], 32, 32)
     canvas_size = (patch_box[2] * 10, patch_box[3] * 10)
 
-    drivable_area = nusc_map.get_map_mask(patch_box, yaw, ["drivable_area"], canvas_size)[0]
+    drivable_area = nusc_map.get_map_mask(patch_box, yaw_degrees, ["drivable_area"], canvas_size)[0]
     drivable_area = (drivable_area * 100).astype(np.int8)
 
     msg = OccupancyGrid()
-    msg.header.frame_id = "base_link"
+    msg.header.frame_id = "map"
     msg.header.stamp = stamp
     msg.info.map_load_time = stamp
     msg.info.resolution = 0.1
     msg.info.width = drivable_area.shape[1]
     msg.info.height = drivable_area.shape[0]
-    msg.info.origin.position.x = -16.0
-    msg.info.origin.position.y = -16.0
-    msg.info.origin.orientation.w = 1
+    msg.info.origin.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians))
+    msg.info.origin.position.y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
+    # Drivable area sits 1cm above the map
+    msg.info.origin.position.z = 0.01
+    msg.info.origin.orientation.x = 0
+    msg.info.origin.orientation.y = 0
+    msg.info.origin.orientation.z = math.sin(yaw_radians / 2)
+    msg.info.origin.orientation.w = math.cos(yaw_radians / 2)
     msg.data = drivable_area.flatten().tolist()
 
     rosmsg_writer.write_message("/drivable_area", msg, stamp)
@@ -490,30 +501,28 @@ def get_centerline_markers(nusc, scene, nusc_map, stamp):
         for pose in pose_list:
             if rectContains(bbox, pose):
                 new_pose_list.append(pose)
-        if len(new_pose_list) > 0:
+        if len(new_pose_list) > 1:
             contained_pose_lists.append(new_pose_list)
 
-    msg = MarkerArray()
+    scene_update = SceneUpdate()
     for i, pose_list in enumerate(contained_pose_lists):
-        marker = Marker()
-        marker.header.frame_id = "map"
-        marker.header.stamp = stamp
-        marker.ns = "centerline"
-        marker.id = i
-        marker.type = Marker.LINE_STRIP
-        marker.action = Marker.ADD
-        marker.frame_locked = True
-        marker.scale.x = 0.1
-        marker.color.r = 51.0 / 255.0
-        marker.color.g = 160.0 / 255.0
-        marker.color.b = 44.0 / 255.0
-        marker.color.a = 1.0
-        marker.pose.orientation.w = 1.0
+        entity = scene_update.entities.add()
+        entity.frame_id = "map"
+        entity.timestamp.FromNanoseconds(stamp.to_nsec())
+        entity.id = f"{i}"
+        entity.frame_locked = True
+        line = entity.lines.add()
+        line.type = LinePrimitive.Type.LINE_STRIP
+        line.thickness = 0.1
+        line.color.r = 51.0 / 255.0
+        line.color.g = 160.0 / 255.0
+        line.color.b = 44.0 / 255.0
+        line.color.a = 1.0
+        line.pose.orientation.w = 1.0
         for pose in pose_list:
-            marker.points.append(Point(pose[0], pose[1], 0))
-        msg.markers.append(marker)
+            line.points.add(x=pose[0], y=pose[1], z=0)
 
-    return msg
+    return scene_update
 
 
 def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
@@ -535,27 +544,21 @@ def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
     return min(candidates, key=lambda x: x[0])[1]
 
 
-def get_car_marker(stamp):
-    marker = Marker()
-    marker.header.frame_id = "base_link"
-    marker.header.stamp = stamp
-    marker.id = 99999999
-    marker.ns = "car"
-    marker.type = Marker.MESH_RESOURCE
-    marker.pose.position.x = 1
-    marker.pose.position.y = 0
-    marker.pose.position.z = 0
-    marker.pose.orientation.w = 1
-    marker.pose.orientation.x = 0
-    marker.pose.orientation.y = 0
-    marker.pose.orientation.z = 0
-    marker.frame_locked = True
-    marker.scale.x = 1
-    marker.scale.y = 1
-    marker.scale.z = 1
-    marker.mesh_resource = "https://assets.foxglove.dev/NuScenes_car_uncompressed.glb"
-    marker.mesh_use_embedded_materials = True
-    return marker
+def get_car_scene_update(stamp) -> SceneUpdate:
+    scene_update = SceneUpdate()
+    entity = scene_update.entities.add()
+    entity.frame_id = "base_link"
+    entity.timestamp.FromNanoseconds(stamp)
+    entity.id = "car"
+    entity.frame_locked = True
+    model = entity.models.add()
+    model.pose.position.x = 1
+    model.pose.orientation.w = 1
+    model.scale.x = 1
+    model.scale.y = 1
+    model.scale.z = 1
+    model.url = "https://assets.foxglove.dev/NuScenes_car_uncompressed.glb"
+    return scene_update
 
 
 class Collector:
@@ -655,7 +658,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         map_msg = get_scene_map(nusc, scene, nusc_map, image, stamp)
         centerlines_msg = get_centerline_markers(nusc, scene, nusc_map, stamp)
         rosmsg_writer.write_message("/map", map_msg, stamp)
-        rosmsg_writer.write_message("/semantic_map", centerlines_msg, stamp)
+        protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
         last_map_stamp = stamp
 
         while cur_sample is not None:
@@ -666,10 +669,10 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             # write map topics every two seconds
             if stamp - rospy.Duration(2.0) >= last_map_stamp:
                 map_msg.header.stamp = stamp
-                for marker in centerlines_msg.markers:
-                    marker.header.stamp = stamp
+                for entity in centerlines_msg.entities:
+                    entity.timestamp.FromNanoseconds(stamp.to_nsec())
                 rosmsg_writer.write_message("/map", map_msg, stamp)
-                rosmsg_writer.write_message("/semantic_map", centerlines_msg, stamp)
+                protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
                 last_map_stamp = stamp
 
             # write CAN messages to /pose, /odom, and /diagnostics
@@ -688,7 +691,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             protobuf_writer.write_message("/tf", get_ego_tf(ego_pose), stamp.to_nsec())
 
             # /driveable_area occupancy grid
-            write_occupancy_grid(rosmsg_writer, nusc_map, ego_pose, stamp)
+            write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp)
 
             # iterate sensors
             for (sensor_id, sample_token) in cur_sample["data"].items():
@@ -745,32 +748,41 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             rosmsg_writer.write_message("/gps", gps, stamp)
 
             # publish /markers/annotations
-            marker_array = MarkerArray()
+            scene_update = SceneUpdate()
             for annotation_id in cur_sample["anns"]:
                 ann = nusc.get("sample_annotation", annotation_id)
-                marker_id = int(ann["instance_token"][:4], 16)
+                marker_id = ann["instance_token"][:4]
                 c = np.array(nusc.explorer.get_color(ann["category_name"])) / 255.0
 
-                marker = Marker()
-                marker.header.frame_id = "map"
-                marker.header.stamp = stamp
-                marker.id = marker_id
-                marker.ns = ann["category_name"]
-                marker.text = ann["instance_token"][:4]
-                marker.type = Marker.CUBE
-                marker.pose = get_pose(ann)
-                marker.frame_locked = True
-                marker.scale.x = ann["size"][1]
-                marker.scale.y = ann["size"][0]
-                marker.scale.z = ann["size"][2]
-                marker.color = make_color(c, 0.5)
-                marker_array.markers.append(marker)
-            rosmsg_writer.write_message("/markers/annotations", marker_array, stamp)
+                entity = scene_update.entities.add()
+                entity.frame_id = "map"
+                entity.timestamp.FromNanoseconds(stamp.to_nsec())
+                entity.id = marker_id
+                entity.frame_locked = True
+                metadata = entity.metadata.add()
+                metadata.key = "category"
+                metadata.value = ann["category_name"]
+                cube = entity.cubes.add()
+                pose = get_pose(ann)
+                cube.pose.position.x = pose.position.x
+                cube.pose.position.y = pose.position.y
+                cube.pose.position.z = pose.position.z
+                cube.pose.orientation.x = pose.orientation.x
+                cube.pose.orientation.y = pose.orientation.y
+                cube.pose.orientation.z = pose.orientation.z
+                cube.pose.orientation.w = pose.orientation.w
+                cube.size.x = ann["size"][1]
+                cube.size.y = ann["size"][0]
+                cube.size.z = ann["size"][2]
+                color = make_color(c, 0.5)
+                cube.color.r = color.r
+                cube.color.g = color.g
+                cube.color.b = color.b
+                cube.color.a = color.a
+            protobuf_writer.write_message("/markers/annotations", scene_update, stamp.to_nsec())
 
             # publish /markers/car
-            car_marker_array = MarkerArray()
-            car_marker_array.markers.append(get_car_marker(stamp))
-            rosmsg_writer.write_message("/markers/car", car_marker_array, stamp)
+            protobuf_writer.write_message("/markers/car", get_car_scene_update(stamp.to_nsec()), stamp.to_nsec())
 
             # collect all sensor frames after this sample but before the next sample
             non_keyframe_sensor_msgs = []

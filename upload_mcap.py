@@ -23,6 +23,7 @@ def main():
         "-t",
         help="data platform secret token (if not provided, FOXGLOVE_DATA_PLATFORM_TOKEN from environment is used)",
     )
+    parser.add_argument("--host", default="api.foxglove.dev", help="custom host to send data to")
     args = parser.parse_args()
     if args.token is None:
         token = os.environ.get("FOXGLOVE_DATA_PLATFORM_TOKEN")
@@ -31,7 +32,7 @@ def main():
             return 1
         args.token = token
 
-    client = Client(token=args.token)
+    client = Client(token=args.token, host=args.host)
     device_ids = {resp["name"]: resp["id"] for resp in client.get_devices()}
 
     filepaths = []
@@ -54,7 +55,8 @@ def main():
             device_name = scene_info.metadata["vehicle"]
             device_id = device_ids.get(device_name)
             if device_id is None:
-                device_id = client.create_device(name=device_name)
+                client.create_device(name=device_name)
+                device_id = device_ids.get(device_name)
                 device_ids[device_name] = device_id
 
             f.seek(0)
