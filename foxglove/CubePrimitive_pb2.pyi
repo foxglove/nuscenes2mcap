@@ -14,7 +14,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class CubePrimitive(google.protobuf.message.Message):
-    """A primitive representing a cube or rectangular prism"""
+    """(Experimental, subject to change) A primitive representing a cube or rectangular prism"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     POSE_FIELD_NUMBER: builtins.int
     SIZE_FIELD_NUMBER: builtins.int

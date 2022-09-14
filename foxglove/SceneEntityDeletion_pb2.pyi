@@ -13,7 +13,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class SceneEntityDeletion(google.protobuf.message.Message):
-    """Command to remove previously published entities"""
+    """(Experimental, subject to change) Command to remove previously published entities"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     class _Type:
         ValueType = typing.NewType('ValueType', builtins.int)
@@ -27,7 +27,7 @@ class SceneEntityDeletion(google.protobuf.message.Message):
         """Delete all existing entities on the same topic"""
 
     class Type(_Type, metaclass=_TypeEnumTypeWrapper):
-        """An enumeration indicating which entities should match a SceneEntityDeletion command"""
+        """(Experimental, subject to change) An enumeration indicating which entities should match a SceneEntityDeletion command"""
         pass
 
     MATCHING_ID: SceneEntityDeletion.Type.ValueType  # 0

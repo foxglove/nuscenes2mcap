@@ -14,7 +14,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class ModelPrimitive(google.protobuf.message.Message):
-    """A primitive representing a 3D model file loaded from an external URL or embedded data"""
+    """(Experimental, subject to change) A primitive representing a 3D model file loaded from an external URL or embedded data"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     POSE_FIELD_NUMBER: builtins.int
     SCALE_FIELD_NUMBER: builtins.int

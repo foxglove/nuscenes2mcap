@@ -23,7 +23,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class SceneEntity(google.protobuf.message.Message):
-    """A visual element in a 3D scene. An entity may be composed of multiple primitives which all share the same frame of reference."""
+    """(Experimental, subject to change) A visual element in a 3D scene. An entity may be composed of multiple primitives which all share the same frame of reference."""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TIMESTAMP_FIELD_NUMBER: builtins.int
     FRAME_ID_FIELD_NUMBER: builtins.int

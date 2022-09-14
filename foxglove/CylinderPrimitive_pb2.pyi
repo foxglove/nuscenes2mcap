@@ -14,7 +14,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class CylinderPrimitive(google.protobuf.message.Message):
-    """A primitive representing a cylinder, elliptic cylinder, or truncated cone"""
+    """(Experimental, subject to change) A primitive representing a cylinder, elliptic cylinder, or truncated cone"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     POSE_FIELD_NUMBER: builtins.int
     SIZE_FIELD_NUMBER: builtins.int

@@ -15,12 +15,16 @@ class CompressedImage(google.protobuf.message.Message):
     """A compressed image"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TIMESTAMP_FIELD_NUMBER: builtins.int
+    FRAME_ID_FIELD_NUMBER: builtins.int
     DATA_FIELD_NUMBER: builtins.int
     FORMAT_FIELD_NUMBER: builtins.int
     @property
     def timestamp(self) -> google.protobuf.timestamp_pb2.Timestamp:
         """Timestamp of image"""
         pass
+    frame_id: typing.Text
+    """Frame of reference for the image. The origin of the frame is the optical center of the camera. +x points to the right in the image, +y points down, and +z points into the plane of the image."""
+
     data: builtins.bytes
     """Compressed image data"""
 
@@ -30,9 +34,10 @@ class CompressedImage(google.protobuf.message.Message):
     def __init__(self,
         *,
         timestamp: typing.Optional[google.protobuf.timestamp_pb2.Timestamp] = ...,
+        frame_id: typing.Text = ...,
         data: builtins.bytes = ...,
         format: typing.Text = ...,
         ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["timestamp",b"timestamp"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["data",b"data","format",b"format","timestamp",b"timestamp"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["data",b"data","format",b"format","frame_id",b"frame_id","timestamp",b"timestamp"]) -> None: ...
 global___CompressedImage = CompressedImage
