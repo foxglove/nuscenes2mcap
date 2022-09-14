@@ -14,7 +14,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class SpherePrimitive(google.protobuf.message.Message):
-    """A primitive representing a sphere or ellipsoid"""
+    """(Experimental, subject to change) A primitive representing a sphere or ellipsoid"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     POSE_FIELD_NUMBER: builtins.int
     SIZE_FIELD_NUMBER: builtins.int

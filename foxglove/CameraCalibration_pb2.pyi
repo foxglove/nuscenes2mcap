@@ -16,6 +16,7 @@ class CameraCalibration(google.protobuf.message.Message):
     """Camera calibration parameters"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TIMESTAMP_FIELD_NUMBER: builtins.int
+    FRAME_ID_FIELD_NUMBER: builtins.int
     WIDTH_FIELD_NUMBER: builtins.int
     HEIGHT_FIELD_NUMBER: builtins.int
     DISTORTION_MODEL_FIELD_NUMBER: builtins.int
@@ -27,6 +28,9 @@ class CameraCalibration(google.protobuf.message.Message):
     def timestamp(self) -> google.protobuf.timestamp_pb2.Timestamp:
         """Timestamp of calibration data"""
         pass
+    frame_id: typing.Text
+    """Frame of reference for the camera. The origin of the frame is the optical center of the camera. +x points to the right in the image, +y points down, and +z points into the plane of the image."""
+
     width: builtins.int
     """Image width"""
 
@@ -97,6 +101,7 @@ class CameraCalibration(google.protobuf.message.Message):
     def __init__(self,
         *,
         timestamp: typing.Optional[google.protobuf.timestamp_pb2.Timestamp] = ...,
+        frame_id: typing.Text = ...,
         width: builtins.int = ...,
         height: builtins.int = ...,
         distortion_model: typing.Text = ...,
@@ -106,5 +111,5 @@ class CameraCalibration(google.protobuf.message.Message):
         P: typing.Optional[typing.Iterable[builtins.float]] = ...,
         ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["timestamp",b"timestamp"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["D",b"D","K",b"K","P",b"P","R",b"R","distortion_model",b"distortion_model","height",b"height","timestamp",b"timestamp","width",b"width"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["D",b"D","K",b"K","P",b"P","R",b"R","distortion_model",b"distortion_model","frame_id",b"frame_id","height",b"height","timestamp",b"timestamp","width",b"width"]) -> None: ...
 global___CameraCalibration = CameraCalibration

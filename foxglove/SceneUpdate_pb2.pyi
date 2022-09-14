@@ -14,7 +14,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class SceneUpdate(google.protobuf.message.Message):
-    """An update to the entities displayed in a 3D scene"""
+    """(Experimental, subject to change) An update to the entities displayed in a 3D scene"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     DELETIONS_FIELD_NUMBER: builtins.int
     ENTITIES_FIELD_NUMBER: builtins.int

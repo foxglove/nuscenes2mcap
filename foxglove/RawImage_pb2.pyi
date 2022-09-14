@@ -15,6 +15,7 @@ class RawImage(google.protobuf.message.Message):
     """A raw image"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     TIMESTAMP_FIELD_NUMBER: builtins.int
+    FRAME_ID_FIELD_NUMBER: builtins.int
     WIDTH_FIELD_NUMBER: builtins.int
     HEIGHT_FIELD_NUMBER: builtins.int
     ENCODING_FIELD_NUMBER: builtins.int
@@ -24,6 +25,9 @@ class RawImage(google.protobuf.message.Message):
     def timestamp(self) -> google.protobuf.timestamp_pb2.Timestamp:
         """Timestamp of image"""
         pass
+    frame_id: typing.Text
+    """Frame of reference for the image. The origin of the frame is the optical center of the camera. +x points to the right in the image, +y points down, and +z points into the plane of the image."""
+
     width: builtins.int
     """Image width"""
 
@@ -42,6 +46,7 @@ class RawImage(google.protobuf.message.Message):
     def __init__(self,
         *,
         timestamp: typing.Optional[google.protobuf.timestamp_pb2.Timestamp] = ...,
+        frame_id: typing.Text = ...,
         width: builtins.int = ...,
         height: builtins.int = ...,
         encoding: typing.Text = ...,
@@ -49,5 +54,5 @@ class RawImage(google.protobuf.message.Message):
         data: builtins.bytes = ...,
         ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["timestamp",b"timestamp"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["data",b"data","encoding",b"encoding","height",b"height","step",b"step","timestamp",b"timestamp","width",b"width"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["data",b"data","encoding",b"encoding","frame_id",b"frame_id","height",b"height","step",b"step","timestamp",b"timestamp","width",b"width"]) -> None: ...
 global___RawImage = RawImage

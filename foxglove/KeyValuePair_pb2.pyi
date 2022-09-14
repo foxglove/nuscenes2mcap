@@ -11,7 +11,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class KeyValuePair(google.protobuf.message.Message):
-    """A key with its associated value"""
+    """(Experimental, subject to change) A key with its associated value"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     KEY_FIELD_NUMBER: builtins.int
     VALUE_FIELD_NUMBER: builtins.int

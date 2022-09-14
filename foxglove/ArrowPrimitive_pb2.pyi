@@ -13,7 +13,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class ArrowPrimitive(google.protobuf.message.Message):
-    """A primitive representing an arrow"""
+    """(Experimental, subject to change) A primitive representing an arrow"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     POSE_FIELD_NUMBER: builtins.int
     SHAFT_LENGTH_FIELD_NUMBER: builtins.int

@@ -16,7 +16,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class LinePrimitive(google.protobuf.message.Message):
-    """A primitive representing a series of points connected by lines"""
+    """(Experimental, subject to change) A primitive representing a series of points connected by lines"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     class _Type:
         ValueType = typing.NewType('ValueType', builtins.int)
@@ -33,7 +33,7 @@ class LinePrimitive(google.protobuf.message.Message):
         """0-1, 2-3, 4-5, ..."""
 
     class Type(_Type, metaclass=_TypeEnumTypeWrapper):
-        """An enumeration indicating how input points should be interpreted to create lines"""
+        """(Experimental, subject to change) An enumeration indicating how input points should be interpreted to create lines"""
         pass
 
     LINE_STRIP: LinePrimitive.Type.ValueType  # 0

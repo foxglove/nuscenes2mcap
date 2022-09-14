@@ -252,21 +252,23 @@ def get_radar(data_path, sample_data, frame_id) -> PointCloud:
     return msg
 
 
-def get_camera(data_path, sample_data):
+def get_camera(data_path, sample_data, frame_id):
     jpg_filename = data_path / sample_data["filename"]
     msg = CompressedImage()
     msg.timestamp.FromMicroseconds(sample_data["timestamp"])
+    msg.frame_id = frame_id
     msg.format = "jpeg"
     with open(jpg_filename, "rb") as jpg_file:
         msg.data = jpg_file.read()
     return msg
 
 
-def get_camera_info(nusc, sample_data):
+def get_camera_info(nusc, sample_data, frame_id):
     calib = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
 
     msg_info = CameraCalibration()
     msg_info.timestamp.FromMicroseconds(sample_data["timestamp"])
+    msg_info.frame_id = frame_id
     msg_info.height = sample_data["height"]
     msg_info.width = sample_data["width"]
     msg_info.K[:] = (calib["camera_intrinsic"][r][c] for r in range(3) for c in range(3))
@@ -710,9 +712,9 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                     msg = get_lidar(data_path, sample_data, sensor_id)
                     protobuf_writer.write_message(topic, msg, stamp.to_nsec())
                 elif sample_data["sensor_modality"] == "camera":
-                    msg = get_camera(data_path, sample_data)
+                    msg = get_camera(data_path, sample_data, sensor_id)
                     protobuf_writer.write_message(topic + "/image_rect_compressed", msg, stamp.to_nsec())
-                    msg = get_camera_info(nusc, sample_data)
+                    msg = get_camera_info(nusc, sample_data, sensor_id)
                     protobuf_writer.write_message(topic + "/camera_info", msg, stamp.to_nsec())
 
                 if sample_data["sensor_modality"] == "camera":
@@ -809,11 +811,11 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                         msg = get_lidar(data_path, next_sample_data, sensor_id)
                         non_keyframe_sensor_msgs.append((msg.timestamp.ToNanoseconds(), topic, msg))
                     elif next_sample_data["sensor_modality"] == "camera":
-                        msg = get_camera(data_path, next_sample_data)
+                        msg = get_camera(data_path, next_sample_data, sensor_id)
                         camera_stamp_nsec = msg.timestamp.ToNanoseconds()
                         non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + "/image_rect_compressed", msg))
 
-                        msg = get_camera_info(nusc, next_sample_data)
+                        msg = get_camera_info(nusc, next_sample_data, sensor_id)
                         non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + "/camera_info", msg))
 
                         closest_lidar = find_closest_lidar(nusc, cur_sample["data"]["LIDAR_TOP"], camera_stamp_nsec)

@@ -15,7 +15,7 @@ import typing_extensions
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class TriangleListPrimitive(google.protobuf.message.Message):
-    """A primitive representing a set of triangles or a surface tiled by triangles"""
+    """(Experimental, subject to change) A primitive representing a set of triangles or a surface tiled by triangles"""
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
     POSE_FIELD_NUMBER: builtins.int
     POINTS_FIELD_NUMBER: builtins.int
