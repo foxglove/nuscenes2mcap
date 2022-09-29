@@ -25,6 +25,7 @@ from tqdm import tqdm
 from foxglove.CameraCalibration_pb2 import CameraCalibration
 from foxglove.CompressedImage_pb2 import CompressedImage
 from foxglove.FrameTransform_pb2 import FrameTransform
+from foxglove.Grid_pb2 import Grid
 from foxglove.ImageAnnotations_pb2 import ImageAnnotations
 from foxglove.LinePrimitive_pb2 import LinePrimitive
 from foxglove.LocationFix_pb2 import LocationFix
@@ -337,7 +338,7 @@ def write_boxes_image_annotations(nusc, protobuf_writer, anns, sample_data, fram
     protobuf_writer.write_message(topic_ns + "/annotations", msg, ann.timestamp.ToNanoseconds())
 
 
-def write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp):
+def write_drivable_area(protobuf_writer, nusc_map, ego_pose, stamp):
     translation = ego_pose["translation"]
     rotation = Quaternion(ego_pose["rotation"])
     yaw_radians = quaternion_yaw(rotation)
@@ -346,26 +347,27 @@ def write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp):
     canvas_size = (patch_box[2] * 10, patch_box[3] * 10)
 
     drivable_area = nusc_map.get_map_mask(patch_box, yaw_degrees, ["drivable_area"], canvas_size)[0]
-    drivable_area = (drivable_area * 100).astype(np.int8)
 
-    msg = OccupancyGrid()
-    msg.header.frame_id = "map"
-    msg.header.stamp = stamp
-    msg.info.map_load_time = stamp
-    msg.info.resolution = 0.1
-    msg.info.width = drivable_area.shape[1]
-    msg.info.height = drivable_area.shape[0]
-    msg.info.origin.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians))
-    msg.info.origin.position.y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
-    # Drivable area sits 1cm above the map
-    msg.info.origin.position.z = 0.01
-    msg.info.origin.orientation.x = 0
-    msg.info.origin.orientation.y = 0
-    msg.info.origin.orientation.z = math.sin(yaw_radians / 2)
-    msg.info.origin.orientation.w = math.cos(yaw_radians / 2)
-    msg.data = drivable_area.flatten().tolist()
+    msg = Grid()
+    msg.timestamp.FromNanoseconds(stamp.to_nsec())
+    msg.frame_id = "map"
+    msg.cell_size.x = 0.1
+    msg.cell_size.y = 0.1
+    msg.column_count = drivable_area.shape[1]
+    msg.row_stride = drivable_area.shape[1]
+    msg.cell_stride = 1
+    msg.fields.add(name="drivable_area", offset=0, type=PackedElementField.UINT8)
+    msg.pose.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians))
+    msg.pose.position.y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
+    msg.pose.position.z = 0.01  # Drivable area sits 1cm above the map
+    q = Quaternion(axis=(0, 0, 1), radians=yaw_radians)
+    msg.pose.orientation.x = q.x
+    msg.pose.orientation.y = q.y
+    msg.pose.orientation.z = q.z
+    msg.pose.orientation.w = q.w
+    msg.data = drivable_area.astype(np.uint8).tobytes()
 
-    rosmsg_writer.write_message("/drivable_area", msg, stamp)
+    protobuf_writer.write_message("/drivable_area", msg, stamp.to_nsec())
 
 
 def get_imu_msg(imu_data):
@@ -470,19 +472,20 @@ def get_scene_map(nusc, scene, nusc_map, image, stamp):
     img_w = int(w * 10)
     img_h = int(h * 10)
     img = np.flipud(image)[img_y : img_y + img_h, img_x : img_x + img_w]
-    img = (img * (100.0 / 255.0)).astype(np.int8)
 
-    msg = OccupancyGrid()
-    msg.header.frame_id = "map"
-    msg.header.stamp = stamp
-    msg.info.map_load_time = stamp
-    msg.info.resolution = 0.1
-    msg.info.width = img_w
-    msg.info.height = img_h
-    msg.info.origin.position.x = x
-    msg.info.origin.position.y = y
-    msg.info.origin.orientation.w = 1
-    msg.data = img.flatten().tolist()
+    msg = Grid()
+    msg.timestamp.FromNanoseconds(stamp.to_nsec())
+    msg.frame_id = "map"
+    msg.cell_size.x = 0.1
+    msg.cell_size.y = 0.1
+    msg.column_count = img_w
+    msg.row_stride = img_w
+    msg.cell_stride = 1
+    msg.fields.add(name="value", offset=0, type=PackedElementField.UINT8)
+    msg.pose.position.x = x
+    msg.pose.position.y = y
+    msg.pose.orientation.w = 1
+    msg.data = img.astype(np.uint8).tobytes()
 
     return msg
 
@@ -659,7 +662,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         )
         map_msg = get_scene_map(nusc, scene, nusc_map, image, stamp)
         centerlines_msg = get_centerline_markers(nusc, scene, nusc_map, stamp)
-        rosmsg_writer.write_message("/map", map_msg, stamp)
+        protobuf_writer.write_message("/map", map_msg, stamp.to_nsec())
         protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
         last_map_stamp = stamp
 
@@ -670,10 +673,10 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
             # write map topics every two seconds
             if stamp - rospy.Duration(2.0) >= last_map_stamp:
-                map_msg.header.stamp = stamp
+                map_msg.timestamp.FromNanoseconds(stamp.to_nsec())
                 for entity in centerlines_msg.entities:
                     entity.timestamp.FromNanoseconds(stamp.to_nsec())
-                rosmsg_writer.write_message("/map", map_msg, stamp)
+                protobuf_writer.write_message("/map", map_msg, stamp.to_nsec())
                 protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
                 last_map_stamp = stamp
 
@@ -693,7 +696,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             protobuf_writer.write_message("/tf", get_ego_tf(ego_pose), stamp.to_nsec())
 
             # /driveable_area occupancy grid
-            write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp)
+            write_drivable_area(protobuf_writer, nusc_map, ego_pose, stamp)
 
             # iterate sensors
             for (sensor_id, sample_token) in cur_sample["data"].items():
