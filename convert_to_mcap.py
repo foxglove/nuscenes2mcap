@@ -18,7 +18,7 @@ from nuscenes.nuscenes import NuScenes
 from PIL import Image
 from pypcd import pypcd
 from pyquaternion import Quaternion
-from sensor_msgs.msg import Imu, NavSatFix
+from sensor_msgs.msg import Imu
 from std_msgs.msg import ColorRGBA
 from tqdm import tqdm
 
@@ -27,6 +27,7 @@ from foxglove.CompressedImage_pb2 import CompressedImage
 from foxglove.FrameTransform_pb2 import FrameTransform
 from foxglove.ImageAnnotations_pb2 import ImageAnnotations
 from foxglove.LinePrimitive_pb2 import LinePrimitive
+from foxglove.LocationFix_pb2 import LocationFix
 from foxglove.PackedElementField_pb2 import PackedElementField
 from foxglove.PointCloud_pb2 import PointCloud
 from foxglove.PointsAnnotation_pb2 import PointsAnnotation
@@ -122,12 +123,11 @@ def derive_latlon(location: str, pose: Dict[str, float]):
     assert location in REFERENCE_COORDINATES.keys(), f"Error: The given location: {location}, has no available reference."
 
     reference_lat, reference_lon = REFERENCE_COORDINATES[location]
-    ts = get_time(pose)
     x, y = pose["translation"][:2]
     bearing = math.atan(x / y)
     distance = math.sqrt(x**2 + y**2)
     lat, lon = get_coordinate(reference_lat, reference_lon, bearing, distance)
-    return lat, lon, ts
+    return lat, lon
 
 
 def get_translation(data):
@@ -738,16 +738,12 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             rosmsg_writer.write_message("/pose", pose_stamped, stamp)
 
             # publish /gps
-            lat, lon, ts = derive_latlon(location, ego_pose)
-            gps = NavSatFix()
-            gps.header.frame_id = "base_link"
-            gps.header.stamp = ts
-            gps.status.status = 1
-            gps.status.service = 1
+            lat, lon = derive_latlon(location, ego_pose)
+            gps = LocationFix()
             gps.latitude = lat
             gps.longitude = lon
             gps.altitude = get_translation(ego_pose).z
-            rosmsg_writer.write_message("/gps", gps, stamp)
+            protobuf_writer.write_message("/gps", gps, stamp.to_nsec())
 
             # publish /markers/annotations
             scene_update = SceneUpdate()
