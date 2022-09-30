@@ -10,7 +10,7 @@ import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import Point, Pose, PoseStamped
 from mcap.mcap0.writer import Writer
-from nav_msgs.msg import OccupancyGrid, Odometry
+from nav_msgs.msg import Odometry
 from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.eval.common.utils import quaternion_yaw
 from nuscenes.map_expansion.map_api import NuScenesMap
