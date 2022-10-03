@@ -69,7 +69,6 @@ IMU_JSON_SCHEMA = {
             },
         },
     },
-    "required": ["x", "y", "z", "w"],
 }
 
 # https://github.com/nutonomy/nuscenes-devkit/blob/master/python-sdk/nuscenes/can_bus/README.md#pose
@@ -118,7 +117,6 @@ ODOM_JSON_SCHEMA = {
             },
         },
     },
-    "required": ["x", "y", "z", "w"],
 }
 
 
