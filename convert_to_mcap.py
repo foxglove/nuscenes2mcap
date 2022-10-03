@@ -8,9 +8,8 @@ from typing import Dict, Tuple
 import numpy as np
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import Point, Pose, PoseStamped
 from mcap.mcap0.writer import Writer
-from nav_msgs.msg import OccupancyGrid, Odometry
+from nav_msgs.msg import OccupancyGrid
 from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.eval.common.utils import quaternion_yaw
 from nuscenes.map_expansion.map_api import NuScenesMap
@@ -18,8 +17,6 @@ from nuscenes.nuscenes import NuScenes
 from PIL import Image
 from pypcd import pypcd
 from pyquaternion import Quaternion
-from sensor_msgs.msg import Imu
-from std_msgs.msg import ColorRGBA
 from tqdm import tqdm
 
 from foxglove.CameraCalibration_pb2 import CameraCalibration
@@ -30,6 +27,7 @@ from foxglove.LinePrimitive_pb2 import LinePrimitive
 from foxglove.LocationFix_pb2 import LocationFix
 from foxglove.PackedElementField_pb2 import PackedElementField
 from foxglove.PointCloud_pb2 import PointCloud
+from foxglove.PoseInFrame_pb2 import PoseInFrame
 from foxglove.PointsAnnotation_pb2 import PointsAnnotation
 from foxglove.Quaternion_pb2 import Quaternion as foxglove_Quaternion
 from foxglove.SceneUpdate_pb2 import SceneUpdate
@@ -39,6 +37,87 @@ from RosmsgWriter import RosmsgWriter
 
 with open(Path(__file__).parent / "turbomap.json") as f:
     TURBOMAP_DATA = np.array(json.load(f))
+
+
+# https://github.com/nutonomy/nuscenes-devkit/blob/master/python-sdk/nuscenes/can_bus/README.md#imu
+IMU_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "linear_accel": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+            },
+        },
+        "q": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+                "w": {"type": "number"},
+            },
+        },
+        "rotation_rate": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+            },
+        },
+    },
+}
+
+# https://github.com/nutonomy/nuscenes-devkit/blob/master/python-sdk/nuscenes/can_bus/README.md#pose
+ODOM_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "accel": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+            },
+        },
+        "orientation": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+                "w": {"type": "number"},
+            },
+        },
+        "pos": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+            },
+        },
+        "rotation_rate": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+            },
+        },
+        "vel": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+            },
+        },
+    },
+}
 
 
 def load_bitmap(dataroot: str, map_name: str, layer_name: str) -> np.ndarray:
@@ -138,20 +217,6 @@ def get_rotation(data):
     return foxglove_Quaternion(x=data["rotation"][1], y=data["rotation"][2], z=data["rotation"][3], w=data["rotation"][0])
 
 
-def get_pose(data):
-    p = Pose()
-    p.position.x = data["translation"][0]
-    p.position.y = data["translation"][1]
-    p.position.z = data["translation"][2]
-
-    p.orientation.w = data["rotation"][0]
-    p.orientation.x = data["rotation"][1]
-    p.orientation.y = data["rotation"][2]
-    p.orientation.z = data["rotation"][3]
-
-    return p
-
-
 def get_time(data):
     t = rospy.Time()
     t.secs, msecs = divmod(data["timestamp"], 1_000_000)
@@ -166,32 +231,6 @@ def get_utime(data):
     t.nsecs = msecs * 1000
 
     return t
-
-
-def make_point(xyz):
-    p = Point()
-    p.x = xyz[0]
-    p.y = xyz[1]
-    p.z = xyz[2]
-    return p
-
-
-def make_point2d(xy):
-    p = Point()
-    p.x = xy[0]
-    p.y = xy[1]
-    p.z = 0.0
-    return p
-
-
-def make_color(rgb, a=1):
-    c = ColorRGBA()
-    c.r = rgb[0]
-    c.g = rgb[1]
-    c.b = rgb[2]
-    c.a = a
-
-    return c
 
 
 # See:
@@ -369,45 +408,63 @@ def write_drivable_area(rosmsg_writer, nusc_map, ego_pose, stamp):
 
 
 def get_imu_msg(imu_data):
-    msg = Imu()
-    msg.header.frame_id = "base_link"
-    msg.header.stamp = get_utime(imu_data)
-    msg.angular_velocity.x = imu_data["rotation_rate"][0]
-    msg.angular_velocity.y = imu_data["rotation_rate"][1]
-    msg.angular_velocity.z = imu_data["rotation_rate"][2]
+    timestamp = get_utime(imu_data)
 
-    msg.linear_acceleration.x = imu_data["linear_accel"][0]
-    msg.linear_acceleration.y = imu_data["linear_accel"][1]
-    msg.linear_acceleration.z = imu_data["linear_accel"][2]
+    msg = {
+        "linear_accel": {
+            "x": imu_data["linear_accel"][0],
+            "y": imu_data["linear_accel"][1],
+            "z": imu_data["linear_accel"][2],
+        },
+        "q": {
+            "w": imu_data["q"][0],
+            "x": imu_data["q"][1],
+            "y": imu_data["q"][2],
+            "z": imu_data["q"][3],
+        },
+        "rotation_rate": {
+            "x": imu_data["rotation_rate"][0],
+            "y": imu_data["rotation_rate"][1],
+            "z": imu_data["rotation_rate"][2],
+        },
+    }
 
-    msg.orientation.w = imu_data["q"][0]
-    msg.orientation.x = imu_data["q"][1]
-    msg.orientation.y = imu_data["q"][2]
-    msg.orientation.z = imu_data["q"][3]
-
-    return (msg.header.stamp, "/imu", msg)
+    return (timestamp, "/imu", json.dumps(msg).encode())
 
 
 def get_odom_msg(pose_data):
-    msg = Odometry()
-    msg.header.frame_id = "map"
-    msg.header.stamp = get_utime(pose_data)
-    msg.child_frame_id = "base_link"
-    msg.pose.pose.position.x = pose_data["pos"][0]
-    msg.pose.pose.position.y = pose_data["pos"][1]
-    msg.pose.pose.position.z = pose_data["pos"][2]
-    msg.pose.pose.orientation.w = pose_data["orientation"][0]
-    msg.pose.pose.orientation.x = pose_data["orientation"][1]
-    msg.pose.pose.orientation.y = pose_data["orientation"][2]
-    msg.pose.pose.orientation.z = pose_data["orientation"][3]
-    msg.twist.twist.linear.x = pose_data["vel"][0]
-    msg.twist.twist.linear.y = pose_data["vel"][1]
-    msg.twist.twist.linear.z = pose_data["vel"][2]
-    msg.twist.twist.angular.x = pose_data["rotation_rate"][0]
-    msg.twist.twist.angular.y = pose_data["rotation_rate"][1]
-    msg.twist.twist.angular.z = pose_data["rotation_rate"][2]
+    timestamp = get_utime(pose_data)
 
-    return (msg.header.stamp, "/odom", msg)
+    msg = {
+        "accel": {
+            "x": pose_data["accel"][0],
+            "y": pose_data["accel"][1],
+            "z": pose_data["accel"][2],
+        },
+        "orientation": {
+            "w": pose_data["orientation"][0],
+            "x": pose_data["orientation"][1],
+            "y": pose_data["orientation"][2],
+            "z": pose_data["orientation"][3],
+        },
+        "pos": {
+            "x": pose_data["pos"][0],
+            "y": pose_data["pos"][1],
+            "z": pose_data["pos"][2],
+        },
+        "rotation_rate": {
+            "x": pose_data["rotation_rate"][0],
+            "y": pose_data["rotation_rate"][1],
+            "z": pose_data["rotation_rate"][2],
+        },
+        "vel": {
+            "x": pose_data["vel"][0],
+            "y": pose_data["vel"][1],
+            "z": pose_data["vel"][2],
+        },
+    }
+
+    return (timestamp, "/odom", json.dumps(msg).encode())
 
 
 def get_basic_can_msg(name, diag_data):
@@ -636,6 +693,13 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
     with open(filepath, "wb") as fp:
         print(f"Writing to {filepath}")
         writer = Writer(fp)
+
+        imu_schema_id = writer.register_schema(name="IMU", encoding="jsonschema", data=json.dumps(IMU_JSON_SCHEMA).encode())
+        imu_channel_id = writer.register_channel(topic="/imu", message_encoding="json", schema_id=imu_schema_id)
+
+        odom_schema_id = writer.register_schema(name="Pose", encoding="jsonschema", data=json.dumps(ODOM_JSON_SCHEMA).encode())
+        odom_channel_id = writer.register_channel(topic="/odom", message_encoding="json", schema_id=odom_schema_id)
+
         protobuf_writer = ProtobufWriter(writer)
         rosmsg_writer = RosmsgWriter(writer)
         writer.start(profile="", library="nuscenes2mcap")
@@ -687,7 +751,12 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                     can_parsers[i][1] = index
             can_msg_events.sort(key=lambda x: x[0])
             for (msg_stamp, topic, msg) in can_msg_events:
-                rosmsg_writer.write_message(topic, msg, msg_stamp)
+                if topic == "/imu":
+                    writer.add_message(imu_channel_id, msg_stamp.to_nsec(), msg, msg_stamp.to_nsec())
+                elif topic == "/odom":
+                    writer.add_message(odom_channel_id, msg_stamp.to_nsec(), msg, msg_stamp.to_nsec())
+                else:
+                    rosmsg_writer.write_message(topic, msg, msg_stamp)
 
             # publish /tf
             protobuf_writer.write_message("/tf", get_ego_tf(ego_pose), stamp.to_nsec())
@@ -731,11 +800,11 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                     )
 
             # publish /pose
-            pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "base_link"
-            pose_stamped.header.stamp = stamp
-            pose_stamped.pose.orientation.w = 1
-            rosmsg_writer.write_message("/pose", pose_stamped, stamp)
+            pose_in_frame = PoseInFrame()
+            pose_in_frame.timestamp.FromNanoseconds(stamp.to_nsec())
+            pose_in_frame.frame_id = "base_link"
+            pose_in_frame.pose.orientation.w = 1
+            protobuf_writer.write_message("/pose", pose_in_frame, stamp.to_nsec())
 
             # publish /gps
             lat, lon = derive_latlon(location, ego_pose)
@@ -761,22 +830,20 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 metadata.key = "category"
                 metadata.value = ann["category_name"]
                 cube = entity.cubes.add()
-                pose = get_pose(ann)
-                cube.pose.position.x = pose.position.x
-                cube.pose.position.y = pose.position.y
-                cube.pose.position.z = pose.position.z
-                cube.pose.orientation.x = pose.orientation.x
-                cube.pose.orientation.y = pose.orientation.y
-                cube.pose.orientation.z = pose.orientation.z
-                cube.pose.orientation.w = pose.orientation.w
+                cube.pose.position.x = ann["translation"][0]
+                cube.pose.position.y = ann["translation"][1]
+                cube.pose.position.z = ann["translation"][2]
+                cube.pose.orientation.w = ann["rotation"][0]
+                cube.pose.orientation.x = ann["rotation"][1]
+                cube.pose.orientation.y = ann["rotation"][2]
+                cube.pose.orientation.z = ann["rotation"][3]
                 cube.size.x = ann["size"][1]
                 cube.size.y = ann["size"][0]
                 cube.size.z = ann["size"][2]
-                color = make_color(c, 0.5)
-                cube.color.r = color.r
-                cube.color.g = color.g
-                cube.color.b = color.b
-                cube.color.a = color.a
+                cube.color.r = c[0]
+                cube.color.g = c[1]
+                cube.color.b = c[2]
+                cube.color.a = 0.5
             protobuf_writer.write_message("/markers/annotations", scene_update, stamp.to_nsec())
 
             # publish /markers/car
