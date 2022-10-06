@@ -41,7 +41,7 @@ protoc --python_out=. --mypy_out=. --proto_path /path/to/foxglove/schemas/schema
 
 ## License
 
-nuscenes2mcap is licensed under [MIT License](https://opensource.org/licenses/MIT).
+nuscenes2mcap is licensed under the [MIT License](https://opensource.org/licenses/MIT).
 
 ## Stay in touch
 
