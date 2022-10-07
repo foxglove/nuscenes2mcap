@@ -529,19 +529,25 @@ def get_scene_map(nusc, scene, nusc_map, image, stamp):
     img_h = int(h * 10)
     img = np.flipud(image)[img_y : img_y + img_h, img_x : img_x + img_w]
 
+    # img values are 0-255
+    # convert to a color scale, 0=white and 255=black, in packed RGBA format: 0xFFFFFF00 to 0x00000000
+    img = (255 - img) * 0x01010100
+    # set alpha to 0xFF for all cells except those that are completely black
+    img[img != 0x00000000] |= 0x000000FF
+
     msg = Grid()
     msg.timestamp.FromNanoseconds(stamp.to_nsec())
     msg.frame_id = "map"
     msg.cell_size.x = 0.1
     msg.cell_size.y = 0.1
     msg.column_count = img_w
-    msg.row_stride = img_w
-    msg.cell_stride = 1
-    msg.fields.add(name="value", offset=0, type=PackedElementField.UINT8)
+    msg.row_stride = img_w * 4
+    msg.cell_stride = 4
+    msg.fields.add(name="color", offset=0, type=PackedElementField.UINT32)
     msg.pose.position.x = x
     msg.pose.position.y = y
     msg.pose.orientation.w = 1
-    msg.data = img.astype(np.uint8).tobytes()
+    msg.data = img.astype("<u4").tobytes()
 
     return msg
 
