@@ -733,21 +733,11 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
         centerlines_msg = get_centerline_markers(nusc, scene, nusc_map, stamp)
         protobuf_writer.write_message("/map", map_msg, stamp.to_nsec())
         protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
-        last_map_stamp = stamp
 
         while cur_sample is not None:
             sample_lidar = nusc.get("sample_data", cur_sample["data"]["LIDAR_TOP"])
             ego_pose = nusc.get("ego_pose", sample_lidar["ego_pose_token"])
             stamp = get_time(ego_pose)
-
-            # write map topics every two seconds
-            if stamp - rospy.Duration(2.0) >= last_map_stamp:
-                map_msg.timestamp.FromNanoseconds(stamp.to_nsec())
-                for entity in centerlines_msg.entities:
-                    entity.timestamp.FromNanoseconds(stamp.to_nsec())
-                protobuf_writer.write_message("/map", map_msg, stamp.to_nsec())
-                protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
-                last_map_stamp = stamp
 
             # write CAN messages to /pose, /odom, and /diagnostics
             can_msg_events = []
