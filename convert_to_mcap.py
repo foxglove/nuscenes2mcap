@@ -8,7 +8,7 @@ from typing import Dict, Tuple
 import numpy as np
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from mcap.mcap0.writer import Writer
+from mcap.mcap0.writer import Writer, CompressionType
 from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.eval.common.utils import quaternion_yaw
 from nuscenes.map_expansion.map_api import NuScenesMap
@@ -700,7 +700,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
     with open(filepath, "wb") as fp:
         print(f"Writing to {filepath}")
-        writer = Writer(fp)
+        writer = Writer(fp, compression=CompressionType.LZ4)
 
         imu_schema_id = writer.register_schema(name="IMU", encoding="jsonschema", data=json.dumps(IMU_JSON_SCHEMA).encode())
         imu_channel_id = writer.register_channel(topic="/imu", message_encoding="json", schema_id=imu_schema_id)
