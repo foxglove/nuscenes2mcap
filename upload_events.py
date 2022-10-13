@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+import json
 import os
 import sys
 from pathlib import Path
@@ -70,10 +71,9 @@ def main():
 
             events.extend(annotator.on_mcap_start(summary, scene_info))
             for schema, _, message in reader.iter_messages(topics=["/markers/annotations", "/imu"]):
-                if schema.name == "sensor_msgs/Imu":
-                    imu = Imu()
-                    imu.deserialize(message.data)
-                    events.extend(annotator.on_imu(imu))
+                if schema.name == "IMU":
+                    imu = json.loads(message.data)
+                    events.extend(annotator.on_imu(imu, message.log_time))
 
                 if schema.name == "foxglove.SceneUpdate":
                     scene_update = SceneUpdate()

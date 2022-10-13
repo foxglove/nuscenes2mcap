@@ -119,9 +119,9 @@ class Annotator:
             )
         ]
 
-    def on_imu(self, imu) -> List[Event]:
-        longitudinal_acceleration = imu.linear_acceleration.x
-        return self.acc_event_source.tick(longitudinal_acceleration, to_ns(imu.header.stamp))
+    def on_imu(self, imu, timestamp_ns) -> List[Event]:
+        longitudinal_acceleration = imu["linear_accel"]["x"]
+        return self.acc_event_source.tick(longitudinal_acceleration, timestamp_ns)
 
     def on_scene_update(self, scene_update) -> List[Event]:
         num_peds = 0
@@ -132,6 +132,9 @@ class Annotator:
             for metadata in entity.metadata:
                 if metadata.key == "category" and metadata.value.startswith("human.pedestrian"):
                     num_peds += 1
+
+        if timestamp is None:
+            return []
 
         stamp_ns = timestamp.nanos + (1_000_000_000 * timestamp.seconds)
 
