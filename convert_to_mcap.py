@@ -921,7 +921,10 @@ def convert_all(
         if selected_scenes is not None and scene_name not in selected_scenes:
             continue
         mcap_name = f"NuScenes-{name}-{scene_name}.mcap"
-        write_scene_to_mcap(nusc, nusc_can, scene, output_dir / mcap_name)
+        try:
+            write_scene_to_mcap(nusc, nusc_can, scene, output_dir / mcap_name)
+        except Exception as err:
+            print(f"could not convert scene {scene_name}: {err}")
 
 
 def main():
