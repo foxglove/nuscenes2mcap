@@ -951,7 +951,7 @@ def main():
         help="path to write MCAP files into",
     )
     parser.add_argument("--scene", "-s", nargs="*", help="specific scene(s) to write")
-    parser.add_argument("--scenes-after", "-a", type=int, help="convert only scenes after this number")
+    parser.add_argument("--scenes-after", "-a", help="convert only scenes after this number")
     parser.add_argument("--list-only", action="store_true", help="lists the scenes and exits")
 
     args = parser.parse_args()
@@ -969,7 +969,7 @@ def main():
             scenes = []
             for scene in nusc.scene:
                 name = scene["name"]
-                if int(name) >= args.scenes_after:
+                if name >= args.scenes_after:
                     scenes.append(name)
 
         convert_all(args.output_dir, name, nusc, nusc_can, scenes)
