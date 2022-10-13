@@ -69,7 +69,7 @@ download-mini-dataset: .download-mini-dataset.stamp
 download-full-dataset: .download-full-dataset.stamp .download-aux-inputs.stamp
 
 .PHONY: convert-mini-dataset
-convert-mini-dataset: converter-image download-mini-dataset
+convert-mini-dataset: converter-image
 	docker run -t --rm \
 		--user $(id -u):$(id -g) \
 		-v $(DATASET_PATH):/data \
@@ -81,7 +81,7 @@ convert-mini-dataset: converter-image download-mini-dataset
 		--output-dir /output
 
 .PHONY: convert-full-dataset
-convert-full-dataset: converter-image download-full-dataset
+convert-full-dataset: converter-image
 	docker run -t --rm \
 		--user $(id -u):$(id -g) \
 		-v $(DATASET_PATH):/data \
