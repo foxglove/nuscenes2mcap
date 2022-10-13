@@ -968,9 +968,9 @@ def main():
         if args.scenes_after is not None:
             scenes = []
             for scene in nusc.scene:
-                name = scene["name"]
-                if name >= args.scenes_after:
-                    scenes.append(name)
+                scene_name = scene["name"]
+                if scene_name >= args.scenes_after:
+                    scenes.append(scene_name)
 
         convert_all(args.output_dir, name, nusc, nusc_can, scenes)
 
