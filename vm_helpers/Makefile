@@ -79,7 +79,6 @@ convert-mini-dataset: converter-image
 		--dataset-name "v1.0-mini" \
 		--data-dir /data \
 		--output-dir /output
-		--scenes-after scene-0161
 
 .PHONY: convert-full-dataset
 convert-full-dataset: converter-image
