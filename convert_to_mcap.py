@@ -397,7 +397,7 @@ def write_drivable_area(protobuf_writer, nusc_map, ego_pose, stamp):
     msg.fields.add(name="drivable_area", offset=0, type=PackedElementField.UINT8)
     msg.pose.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians))
     msg.pose.position.y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
-    msg.pose.position.z = 0.01  # Drivable area sits 1cm above the map
+    msg.pose.position.z = 0.20  # Drivable area sits 20cm above the map
     q = Quaternion(axis=(0, 0, 1), radians=yaw_radians)
     msg.pose.orientation.x = q.x
     msg.pose.orientation.y = q.y
