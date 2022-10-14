@@ -397,7 +397,6 @@ def write_drivable_area(protobuf_writer, nusc_map, ego_pose, stamp):
     msg.fields.add(name="drivable_area", offset=0, type=PackedElementField.UINT8)
     msg.pose.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians))
     msg.pose.position.y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
-    msg.pose.position.z = 0.20  # Drivable area sits 20cm above the map
     q = Quaternion(axis=(0, 0, 1), radians=yaw_radians)
     msg.pose.orientation.x = q.x
     msg.pose.orientation.y = q.y
@@ -546,6 +545,8 @@ def get_scene_map(nusc, scene, nusc_map, image, stamp):
     msg.fields.add(name="color", offset=0, type=PackedElementField.UINT32)
     msg.pose.position.x = x
     msg.pose.position.y = y
+    # place map 20cm below ground, so it doesn't fight with other objects
+    msg.pose.position.z = -0.20
     msg.pose.orientation.w = 1
     msg.data = img.astype("<u4").tobytes()
 
