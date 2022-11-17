@@ -543,7 +543,10 @@ def get_scene_map(nusc, scene, nusc_map, image, stamp):
     msg.column_count = img_w
     msg.row_stride = img_w * 4
     msg.cell_stride = 4
-    msg.fields.add(name="color", offset=0, type=PackedElementField.UINT32)
+    msg.fields.add(name="alpha", offset=0, type=PackedElementField.UINT8)
+    msg.fields.add(name="blue", offset=1, type=PackedElementField.UINT8)
+    msg.fields.add(name="green", offset=2, type=PackedElementField.UINT8)
+    msg.fields.add(name="red", offset=3, type=PackedElementField.UINT8)
     msg.pose.position.x = x
     msg.pose.position.y = y
     msg.pose.orientation.w = 1
