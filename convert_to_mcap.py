@@ -8,7 +8,7 @@ from typing import Dict, Tuple
 import numpy as np
 import rospy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from mcap.mcap0.writer import Writer, CompressionType
+from mcap.writer import Writer, CompressionType
 from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 from nuscenes.eval.common.utils import quaternion_yaw
 from nuscenes.map_expansion.map_api import NuScenesMap
