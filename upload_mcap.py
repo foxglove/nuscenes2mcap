@@ -5,6 +5,7 @@ from pathlib import Path
 
 from foxglove_data_platform.client import Client
 from mcap.mcap0.reader import make_reader
+from device_name import make_device_name
 
 from tqdm import tqdm
 
@@ -52,7 +53,7 @@ def main():
         with open(filepath, "rb") as f:
             reader = make_reader(f)
             scene_info = next(metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info")
-            device_name = scene_info.metadata["vehicle"]
+            device_name = make_device_name(scene_info.metadata)
             device_id = device_ids.get(device_name)
             if device_id is None:
                 client.create_device(name=device_name)
