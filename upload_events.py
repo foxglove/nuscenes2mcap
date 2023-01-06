@@ -10,6 +10,7 @@ from mcap.mcap0.reader import make_reader
 from sensor_msgs.msg import Imu
 from foxglove.SceneUpdate_pb2 import SceneUpdate
 
+from device_name import make_device_name
 from event_helpers.annotators import Annotator
 from event_helpers.client_utils import get_all_events_for_device
 
@@ -58,12 +59,12 @@ def main():
                 (metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info"),
                 None,
             )
+            device_name = make_device_name(scene_info.metadata)
             try:
-                vehicle = scene_info.metadata["vehicle"]
-                device_id = device_ids[vehicle]
+                device_id = device_ids[device_name]
             except KeyError:
                 print(
-                    f"device ID not found for vehicle '{vehicle}' - has this MCAP been uploaded?",
+                    f"device ID not found for '{device_name}' - has this MCAP been uploaded?",
                     file=sys.stderr,
                 )
                 return 1
