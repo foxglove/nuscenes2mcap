@@ -355,25 +355,47 @@ def get_lidar_image_annotations(nusc, sample_lidar, sample_data, frame_id):
 
 
 def write_boxes_image_annotations(nusc, protobuf_writer, anns, sample_data, frame_id, topic_ns, stamp):
+    msg = ImageAnnotations()
+
+    # points annotation
+    points_ann = msg.points.add()
+    points_ann.timestamp.FromMicroseconds(sample_data["timestamp"])
+    points_ann.type = PointsAnnotation.Type.LINE_LIST
+    points_ann.thickness = 2
+
     # annotation boxes
-    collector = Collector()
     _, boxes, camera_intrinsic = nusc.get_sample_data(sample_data["token"])
     for box in boxes:
+        collector = Collector()
         c = np.array(nusc.explorer.get_color(box.name)) / 255.0
         box.render(collector, view=camera_intrinsic, normalize=True, colors=(c, c, c))
 
-    msg = ImageAnnotations()
+        # points annotation - points and colors
+        for p in collector.points:
+            points_ann.points.add(x=p[0], y=p[1])
+        for c in collector.colors:
+            points_ann.outline_colors.add(r=c[0], g=c[1], b=c[2], a=1)
 
-    ann = msg.points.add()
-    ann.timestamp.FromMicroseconds(sample_data["timestamp"])
-    ann.type = PointsAnnotation.Type.LINE_LIST
-    ann.thickness = 2
-    for p in collector.points:
-        ann.points.add(x=p[0], y=p[1])
-    for c in collector.colors:
-        ann.outline_colors.add(r=c[0], g=c[1], b=c[2], a=1)
+        # texts annotation
+        texts_ann = msg.texts.add()
+        texts_ann.timestamp.FromMicroseconds(sample_data["timestamp"])
+        texts_ann.font_size = 24
 
-    protobuf_writer.write_message(topic_ns + "/annotations", msg, ann.timestamp.ToNanoseconds())
+        texts_ann.position.x = min(map(lambda pt: pt[0], collector.points))
+        texts_ann.position.y = min(map(lambda pt: pt[1], collector.points))
+        texts_ann.text = box.name
+
+        texts_ann.text_color.r = c[0]
+        texts_ann.text_color.g = c[1]
+        texts_ann.text_color.b = c[2]
+        texts_ann.text_color.a = 1
+
+        texts_ann.background_color.r = 1
+        texts_ann.background_color.g = 1
+        texts_ann.background_color.b = 1
+        texts_ann.background_color.a = 0
+
+    protobuf_writer.write_message(topic_ns + "/annotations", msg, points_ann.timestamp.ToNanoseconds())
 
 
 def write_drivable_area(protobuf_writer, nusc_map, ego_pose, stamp):
