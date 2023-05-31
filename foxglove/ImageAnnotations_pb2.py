@@ -13,15 +13,16 @@ _sym_db = _symbol_database.Default()
 
 from foxglove import CircleAnnotation_pb2 as foxglove_dot_CircleAnnotation__pb2
 from foxglove import PointsAnnotation_pb2 as foxglove_dot_PointsAnnotation__pb2
+from foxglove import TextAnnotation_pb2 as foxglove_dot_TextAnnotation__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1f\x66oxglove/ImageAnnotations.proto\x12\x08\x66oxglove\x1a\x1f\x66oxglove/CircleAnnotation.proto\x1a\x1f\x66oxglove/PointsAnnotation.proto\"k\n\x10ImageAnnotations\x12+\n\x07\x63ircles\x18\x01 \x03(\x0b\x32\x1a.foxglove.CircleAnnotation\x12*\n\x06points\x18\x02 \x03(\x0b\x32\x1a.foxglove.PointsAnnotationb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1f\x66oxglove/ImageAnnotations.proto\x12\x08\x66oxglove\x1a\x1f\x66oxglove/CircleAnnotation.proto\x1a\x1f\x66oxglove/PointsAnnotation.proto\x1a\x1d\x66oxglove/TextAnnotation.proto\"\x94\x01\n\x10ImageAnnotations\x12+\n\x07\x63ircles\x18\x01 \x03(\x0b\x32\x1a.foxglove.CircleAnnotation\x12*\n\x06points\x18\x02 \x03(\x0b\x32\x1a.foxglove.PointsAnnotation\x12\'\n\x05texts\x18\x03 \x03(\x0b\x32\x18.foxglove.TextAnnotationb\x06proto3')
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'foxglove.ImageAnnotations_pb2', globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
 
   DESCRIPTOR._options = None
-  _IMAGEANNOTATIONS._serialized_start=111
-  _IMAGEANNOTATIONS._serialized_end=218
+  _IMAGEANNOTATIONS._serialized_start=143
+  _IMAGEANNOTATIONS._serialized_end=291
 # @@protoc_insertion_point(module_scope)
