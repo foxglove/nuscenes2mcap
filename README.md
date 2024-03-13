@@ -4,7 +4,7 @@
 
 ## Introduction
 
-nuScenes is a large-scale dataset of autonomous driving in urban environments, provided free for non-commercial use. This project provides helper scripts to download the nuScenes dataset and convert scenes into [MCAP](https://mcap.dev) files for easy viewing in tools such as [Foxglove Studio](https://foxglove.dev/).
+nuScenes is a large-scale dataset of autonomous driving in urban environments, provided free for non-commercial use. This project provides helper scripts to download the nuScenes dataset and convert scenes into [MCAP](https://mcap.dev) files for easy viewing in tools such as [Foxglove](https://foxglove.dev/).
 
 ## Usage
 
