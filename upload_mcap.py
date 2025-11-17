@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from foxglove_data_platform.client import Client
-from mcap.mcap0.reader import make_reader
+from mcap.reader import make_reader
 from device_name import make_device_name
 
 from tqdm import tqdm
@@ -49,16 +49,24 @@ def main():
     for filepath in filepaths:
         filename = filepath.name
         print(f"checking for previous imports of {filename} ...")
-        previous_uploads = client.get_imports(filename=filename)
+        previous_uploads = client.get_recordings(path=filename)
         with open(filepath, "rb") as f:
             reader = make_reader(f)
             scene_info = next(metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info")
             device_name = make_device_name(scene_info.metadata)
             device_id = device_ids.get(device_name)
             if device_id is None:
-                client.create_device(name=device_name)
+                try:
+                    client.create_device(name=device_name)
+                except Exception as e:
+                    # Device might already exist, which is fine
+                    if "already exists" not in str(e):
+                        raise
+                # Refresh device list to get the device_id (whether newly created or existing)
+                device_ids = {resp["name"]: resp["id"] for resp in client.get_devices()}
                 device_id = device_ids.get(device_name)
-                device_ids[device_name] = device_id
+                if device_id is None:
+                    raise RuntimeError(f"Failed to create or find device: {device_name}")
 
             f.seek(0)
             print(f"uploading {filename} with device name {device_name} ...")
