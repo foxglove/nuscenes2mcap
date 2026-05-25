@@ -88,7 +88,7 @@ class AccelerationEventSource(LatchingEventSource):
     def event_metadata(self):
         return {
             "category": "large_acceleration",
-            "max": f"{self.max_acceleration:.2f}",
+            "max": f"{self.max_acceleration: .2f}",
         }
 
     def reset(self):

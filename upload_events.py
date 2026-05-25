@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from foxglove_data_platform.client import Client
-from mcap.mcap0.reader import make_reader
+from mcap.reader import make_reader
 
 from sensor_msgs.msg import Imu
 from foxglove.SceneUpdate_pb2 import SceneUpdate
