@@ -1,12 +1,18 @@
-FROM ros:noetic-ros-core
+# Modern Python 3.10 environment
+FROM python:3.10-slim
 
-RUN apt-get update
-RUN apt-get install -y git python3-pip python3-tf2-ros ros-noetic-foxglove-msgs libgl1 libgeos-dev
-RUN rm -rf /var/lib/apt/lists/*
+# Install system dependencies (including libglib2.0-0 which is required by opencv-python)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    libgl1 \
+    libglib2.0-0 \
+    libgeos-dev
 
-RUN pip3 install shapely==1.8.* numpy==1.19 nuscenes-devkit mcap 'mcap-protobuf-support>=0.0.8' foxglove-data-platform tqdm requests protobuf
-RUN pip3 install git+https://github.com/DanielPollithy/pypcd.git
+# Install pipenv and project dependencies via the Pipfile (without --deploy since lockfile needs generation)
+RUN pip install --no-cache-dir pipenv
+COPY Pipfile Pipfile.lock* /work/
+WORKDIR /work
+RUN pipenv install --system --skip-lock
 
 COPY . /work
-
-WORKDIR /work

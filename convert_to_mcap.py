@@ -2,38 +2,53 @@ import argparse
 import json
 import math
 import os
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, Tuple
 
 import numpy as np
-import rospy
-from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from mcap.writer import Writer, CompressionType
-from nuscenes.can_bus.can_bus_api import NuScenesCanBus
-from nuscenes.eval.common.utils import quaternion_yaw
-from nuscenes.map_expansion.map_api import NuScenesMap
-from nuscenes.nuscenes import NuScenes
 from PIL import Image
 from pypcd import pypcd
 from pyquaternion import Quaternion
 from tqdm import tqdm
+from nuscenes.can_bus.can_bus_api import NuScenesCanBus
+from nuscenes.eval.common.utils import quaternion_yaw
+from nuscenes.map_expansion.map_api import NuScenesMap
+from nuscenes.nuscenes import NuScenes
 
-from foxglove.CameraCalibration_pb2 import CameraCalibration
-from foxglove.CompressedImage_pb2 import CompressedImage
-from foxglove.FrameTransform_pb2 import FrameTransform
-from foxglove.Grid_pb2 import Grid
-from foxglove.ImageAnnotations_pb2 import ImageAnnotations
-from foxglove.LinePrimitive_pb2 import LinePrimitive
-from foxglove.LocationFix_pb2 import LocationFix
-from foxglove.PackedElementField_pb2 import PackedElementField
-from foxglove.PointCloud_pb2 import PointCloud
-from foxglove.PoseInFrame_pb2 import PoseInFrame
-from foxglove.PointsAnnotation_pb2 import PointsAnnotation
-from foxglove.Quaternion_pb2 import Quaternion as foxglove_Quaternion
-from foxglove.SceneUpdate_pb2 import SceneUpdate
-from foxglove.Vector3_pb2 import Vector3
-from ProtobufWriter import ProtobufWriter
-from RosmsgWriter import RosmsgWriter
+# Import Foxglove Python SDK and its native message types
+import foxglove
+from foxglove import Channel, Schema
+from foxglove.messages import (
+    CameraCalibration,
+    CompressedImage,
+    CubePrimitive,
+    FrameTransform,
+    Grid,
+    ImageAnnotations,
+    LinePrimitive,
+    LinePrimitiveLineType,
+    LocationFix,
+    ModelPrimitive,
+    PackedElementField,
+    PackedElementFieldNumericType,
+    Point2,
+    Point3,
+    PointCloud,
+    Pose,
+    PoseInFrame,
+    PointsAnnotation,
+    PointsAnnotationType,
+    Quaternion as foxglove_Quaternion,
+    SceneEntity,
+    SceneUpdate,
+    TextAnnotation,
+    Color,
+    Vector2,
+    Vector3,
+    KeyValuePair,
+    Timestamp,
+)
 
 with open(Path(__file__).parent / "turbomap.json") as f:
     TURBOMAP_DATA = np.array(json.load(f))
@@ -119,6 +134,52 @@ ODOM_JSON_SCHEMA = {
     },
 }
 
+# Standard representation of a DiagnosticArray message structure
+DIAGNOSTIC_ARRAY_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "header": {
+            "type": "object",
+            "properties": {
+                "stamp": {
+                    "type": "object",
+                    "properties": {
+                        "sec": {"type": "integer"},
+                        "nsec": {"type": "integer"}
+                    },
+                    "required": ["sec", "nsec"]
+                }
+            },
+            "required": ["stamp"]
+        },
+        "status": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "message": {"type": "string"},
+                    "hardware_id": {"type": "string"},
+                    "values": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": {"type": "string"},
+                                "value": {"type": "string"}
+                            },
+                            "required": ["key", "value"]
+                        }
+                    }
+                },
+                "required": ["level", "name", "message", "hardware_id", "values"]
+            }
+        }
+    },
+    "required": ["header", "status"]
+}
+
 
 def load_bitmap(dataroot: str, map_name: str, layer_name: str) -> np.ndarray:
     """render bitmap map layers. Currently these are:
@@ -199,13 +260,12 @@ def derive_latlon(location: str, pose: Dict[str, float]):
     :param poses: All nuScenes egopose dictionaries of a scene.
     :return: A list of dicts (lat/lon coordinates and timestamps) for each pose.
     """
-    assert location in REFERENCE_COORDINATES.keys(), f"Error: The given location: {location}, has no available reference."
-
-    reference_lat, reference_lon = REFERENCE_COORDINATES[location]
+    assert location in REFERENCE_COORDINATES.keys(), "Error: Reference coordinate not found for location %s!" % location
+    ref_lat, ref_lon = REFERENCE_COORDINATES[location]
     x, y = pose["translation"][:2]
-    bearing = math.atan(x / y)
-    distance = math.sqrt(x**2 + y**2)
-    lat, lon = get_coordinate(reference_lat, reference_lon, bearing, distance)
+    bearing = math.atan2(x, y)
+    yaw = math.sqrt(x**2 + y**2)
+    lat, lon = get_coordinate(ref_lat, ref_lon, bearing, yaw)
     return lat, lon
 
 
@@ -217,20 +277,15 @@ def get_rotation(data):
     return foxglove_Quaternion(x=data["rotation"][1], y=data["rotation"][2], z=data["rotation"][3], w=data["rotation"][0])
 
 
-def get_time(data):
-    t = rospy.Time()
-    t.secs, msecs = divmod(data["timestamp"], 1_000_000)
-    t.nsecs = msecs * 1000
-
-    return t
+def get_timestamp(timestamp_us) -> Timestamp:
+    sec, msecs = divmod(timestamp_us, 1_000_000)
+    nsec = msecs * 1000
+    return Timestamp(sec=sec, nsec=nsec)
 
 
-def get_utime(data):
-    t = rospy.Time()
-    t.secs, msecs = divmod(data["utime"], 1_000_000)
-    t.nsecs = msecs * 1000
-
-    return t
+def get_timestamp_from_ns(timestamp_ns) -> Timestamp:
+    sec, nsec = divmod(timestamp_ns, 1_000_000_000)
+    return Timestamp(sec=sec, nsec=nsec)
 
 
 # See:
@@ -263,74 +318,91 @@ def get_categories(nusc, first_sample):
 
 
 PCD_TO_PACKED_ELEMENT_TYPE_MAP = {
-    ("I", 1): PackedElementField.INT8,
-    ("U", 1): PackedElementField.UINT8,
-    ("I", 2): PackedElementField.INT16,
-    ("U", 2): PackedElementField.UINT16,
-    ("I", 4): PackedElementField.INT32,
-    ("U", 4): PackedElementField.UINT32,
-    ("F", 4): PackedElementField.FLOAT32,
-    ("F", 8): PackedElementField.FLOAT64,
+    ("I", 1): PackedElementFieldNumericType.Int8,
+    ("U", 1): PackedElementFieldNumericType.Uint8,
+    ("I", 2): PackedElementFieldNumericType.Int16,
+    ("U", 2): PackedElementFieldNumericType.Uint16,
+    ("I", 4): PackedElementFieldNumericType.Int32,
+    ("U", 4): PackedElementFieldNumericType.Uint32,
+    ("F", 4): PackedElementFieldNumericType.Float32,
+    ("F", 8): PackedElementFieldNumericType.Float64,
 }
 
 
 def get_radar(data_path, sample_data, frame_id) -> PointCloud:
     pc_filename = data_path / sample_data["filename"]
     pc = pypcd.PointCloud.from_path(pc_filename)
-    msg = PointCloud()
-    msg.frame_id = frame_id
-    msg.timestamp.FromMicroseconds(sample_data["timestamp"])
+
+    fields = []
     offset = 0
     for name, size, count, ty in zip(pc.fields, pc.size, pc.count, pc.type):
         assert count == 1
-        msg.fields.add(name=name, offset=offset, type=PCD_TO_PACKED_ELEMENT_TYPE_MAP[(ty, size)])
+        fields.append(
+            PackedElementField(
+                name=name,
+                offset=offset,
+                type=PCD_TO_PACKED_ELEMENT_TYPE_MAP[(ty, size)]
+            )
+        )
         offset += size
 
-    msg.point_stride = offset
-    msg.data = pc.pc_data.tobytes()
-    return msg
+    return PointCloud(
+        timestamp=get_timestamp(sample_data["timestamp"]),
+        frame_id=frame_id,
+        point_stride=offset,
+        fields=fields,
+        data=pc.pc_data.tobytes(),
+    )
 
 
 def get_camera(data_path, sample_data, frame_id):
     jpg_filename = data_path / sample_data["filename"]
-    msg = CompressedImage()
-    msg.timestamp.FromMicroseconds(sample_data["timestamp"])
-    msg.frame_id = frame_id
-    msg.format = "jpeg"
     with open(jpg_filename, "rb") as jpg_file:
-        msg.data = jpg_file.read()
-    return msg
+        data = jpg_file.read()
+    return CompressedImage(
+        timestamp=get_timestamp(sample_data["timestamp"]),
+        frame_id=frame_id,
+        format="jpeg",
+        data=data,
+    )
 
 
 def get_camera_info(nusc, sample_data, frame_id):
     calib = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
 
-    msg_info = CameraCalibration()
-    msg_info.timestamp.FromMicroseconds(sample_data["timestamp"])
-    msg_info.frame_id = frame_id
-    msg_info.height = sample_data["height"]
-    msg_info.width = sample_data["width"]
-    msg_info.K[:] = (calib["camera_intrinsic"][r][c] for r in range(3) for c in range(3))
-    msg_info.R[:] = [1, 0, 0, 0, 1, 0, 0, 0, 1]
-    msg_info.P[:] = [msg_info.K[0], msg_info.K[1], msg_info.K[2], 0, msg_info.K[3], msg_info.K[4], msg_info.K[5], 0, 0, 0, 1, 0]
-    return msg_info
+    K = [calib["camera_intrinsic"][r][c] for r in range(3) for c in range(3)]
+    R = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    P = [K[0], K[1], K[2], 0.0, K[3], K[4], K[5], 0.0, 0.0, 0.0, 1.0, 0.0]
+
+    return CameraCalibration(
+        timestamp=get_timestamp(sample_data["timestamp"]),
+        frame_id=frame_id,
+        height=sample_data["height"],
+        width=sample_data["width"],
+        K=K,
+        R=R,
+        P=P,
+    )
 
 
 def get_lidar(data_path, sample_data, frame_id) -> PointCloud:
     pc_filename = data_path / sample_data["filename"]
 
     with open(pc_filename, "rb") as pc_file:
-        msg = PointCloud()
-        msg.frame_id = frame_id
-        msg.timestamp.FromMicroseconds(sample_data["timestamp"])
-        msg.fields.add(name="x", offset=0, type=PackedElementField.FLOAT32),
-        msg.fields.add(name="y", offset=4, type=PackedElementField.FLOAT32),
-        msg.fields.add(name="z", offset=8, type=PackedElementField.FLOAT32),
-        msg.fields.add(name="intensity", offset=12, type=PackedElementField.FLOAT32),
-        msg.fields.add(name="ring", offset=16, type=PackedElementField.FLOAT32),
-        msg.point_stride = len(msg.fields) * 4  # 4 bytes per field
-        msg.data = pc_file.read()
-        return msg
+        fields = [
+            PackedElementField(name="x", offset=0, type=PackedElementFieldNumericType.Float32),
+            PackedElementField(name="y", offset=4, type=PackedElementFieldNumericType.Float32),
+            PackedElementField(name="z", offset=8, type=PackedElementFieldNumericType.Float32),
+            PackedElementField(name="intensity", offset=12, type=PackedElementFieldNumericType.Float32),
+            PackedElementField(name="ring", offset=16, type=PackedElementFieldNumericType.Float32),
+        ]
+        return PointCloud(
+            timestamp=get_timestamp(sample_data["timestamp"]),
+            frame_id=frame_id,
+            point_stride=len(fields) * 4,  # 20 bytes
+            fields=fields,
+            data=pc_file.read(),
+        )
 
 
 def get_lidar_image_annotations(nusc, sample_lidar, sample_data, frame_id):
@@ -342,26 +414,31 @@ def get_lidar_image_annotations(nusc, sample_lidar, sample_data, frame_id):
     )
     points = points.transpose()
 
-    msg = ImageAnnotations()
-    ann = msg.points.add()
-    ann.timestamp.FromMicroseconds(sample_data["timestamp"])
-    ann.type = PointsAnnotation.Type.POINTS
-    ann.thickness = 2
-    for p in points:
-        ann.points.add(x=p[0], y=p[1])
+    outline_colors = []
     for c in turbomap(coloring):
-        ann.outline_colors.add(r=c[0], g=c[1], b=c[2], a=1)
-    return msg
+        outline_colors.append(Color(r=c[0], g=c[1], b=c[2], a=1.0))
+
+    pts_list = [Point2(x=p[0], y=p[1]) for p in points]
+
+    return ImageAnnotations(
+        points=[
+            PointsAnnotation(
+                timestamp=get_timestamp(sample_data["timestamp"]),
+                type=PointsAnnotationType.Points,
+                thickness=2.0,
+                points=pts_list,
+                outline_colors=outline_colors,
+            )
+        ]
+    )
 
 
-def write_boxes_image_annotations(nusc, protobuf_writer, anns, sample_data, frame_id, topic_ns, stamp):
-    msg = ImageAnnotations()
+def write_boxes_image_annotations(nusc, anns, sample_data, frame_id, topic_ns, stamp_ns):
+    timestamp = get_timestamp_from_ns(stamp_ns)
 
-    # points annotation
-    points_ann = msg.points.add()
-    points_ann.timestamp.FromMicroseconds(sample_data["timestamp"])
-    points_ann.type = PointsAnnotation.Type.LINE_LIST
-    points_ann.thickness = 2
+    pts_list = []
+    outline_colors = []
+    texts_anns = []
 
     # annotation boxes
     _, boxes, camera_intrinsic = nusc.get_sample_data(sample_data["token"])
@@ -370,35 +447,42 @@ def write_boxes_image_annotations(nusc, protobuf_writer, anns, sample_data, fram
         c = np.array(nusc.explorer.get_color(box.name)) / 255.0
         box.render(collector, view=camera_intrinsic, normalize=True, colors=(c, c, c))
 
-        # points annotation - points and colors
         for p in collector.points:
-            points_ann.points.add(x=p[0], y=p[1])
-        for c in collector.colors:
-            points_ann.outline_colors.add(r=c[0], g=c[1], b=c[2], a=1)
+            pts_list.append(Point2(x=p[0], y=p[1]))
+        for col in collector.colors:
+            outline_colors.append(Color(r=col[0], g=col[1], b=col[2], a=1.0))
 
-        # texts annotation
-        texts_ann = msg.texts.add()
-        texts_ann.timestamp.FromMicroseconds(sample_data["timestamp"])
-        texts_ann.font_size = 24
+        min_x = min(pt[0] for pt in collector.points) if collector.points else 0.0
+        min_y = min(pt[1] for pt in collector.points) if collector.points else 0.0
 
-        texts_ann.position.x = min(map(lambda pt: pt[0], collector.points))
-        texts_ann.position.y = min(map(lambda pt: pt[1], collector.points))
-        texts_ann.text = box.name
+        texts_anns.append(
+            TextAnnotation(
+                timestamp=timestamp,
+                font_size=24.0,
+                position=Point2(x=min_x, y=min_y),
+                text=box.name,
+                text_color=Color(r=c[0], g=c[1], b=c[2], a=1.0),
+                background_color=Color(r=1.0, g=1.0, b=1.0, a=0.0)
+            )
+        )
 
-        texts_ann.text_color.r = c[0]
-        texts_ann.text_color.g = c[1]
-        texts_ann.text_color.b = c[2]
-        texts_ann.text_color.a = 1
+    points_ann = PointsAnnotation(
+        timestamp=timestamp,
+        type=PointsAnnotationType.LineList,
+        thickness=2.0,
+        points=pts_list,
+        outline_colors=outline_colors,
+    )
 
-        texts_ann.background_color.r = 1
-        texts_ann.background_color.g = 1
-        texts_ann.background_color.b = 1
-        texts_ann.background_color.a = 0
+    msg = ImageAnnotations(
+        points=[points_ann],
+        texts=texts_anns
+    )
 
-    protobuf_writer.write_message(topic_ns + "/annotations", msg, points_ann.timestamp.ToNanoseconds())
+    foxglove.log(topic_ns + "/annotations", msg, log_time=stamp_ns)
 
 
-def write_drivable_area(protobuf_writer, nusc_map, ego_pose, stamp):
+def write_drivable_area(nusc_map, ego_pose, stamp_ns):
     translation = ego_pose["translation"]
     rotation = Quaternion(ego_pose["rotation"])
     yaw_radians = quaternion_yaw(rotation)
@@ -408,30 +492,33 @@ def write_drivable_area(protobuf_writer, nusc_map, ego_pose, stamp):
 
     drivable_area = nusc_map.get_map_mask(patch_box, yaw_degrees, ["drivable_area"], canvas_size)[0]
 
-    msg = Grid()
-    msg.timestamp.FromNanoseconds(stamp.to_nsec())
-    msg.frame_id = "map"
-    msg.cell_size.x = 0.1
-    msg.cell_size.y = 0.1
-    msg.column_count = drivable_area.shape[1]
-    msg.row_stride = drivable_area.shape[1]
-    msg.cell_stride = 1
-    msg.fields.add(name="drivable_area", offset=0, type=PackedElementField.UINT8)
-    msg.pose.position.x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians))
-    msg.pose.position.y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
-    msg.pose.position.z = 0.01  # Drivable area sits 1cm above the map
-    q = Quaternion(axis=(0, 0, 1), radians=yaw_radians)
-    msg.pose.orientation.x = q.x
-    msg.pose.orientation.y = q.y
-    msg.pose.orientation.z = q.z
-    msg.pose.orientation.w = q.w
-    msg.data = drivable_area.astype(np.uint8).tobytes()
+    pos_x = translation[0] - (16 * math.cos(yaw_radians)) + (16 * math.sin(yaw_radians))
+    pos_y = translation[1] - (16 * math.sin(yaw_radians)) - (16 * math.cos(yaw_radians))
 
-    protobuf_writer.write_message("/drivable_area", msg, stamp.to_nsec())
+    q = Quaternion(axis=(0, 0, 1), radians=yaw_radians)
+
+    msg = Grid(
+        timestamp=get_timestamp_from_ns(stamp_ns),
+        frame_id="map",
+        cell_size=Vector2(x=0.1, y=0.1),
+        column_count=drivable_area.shape[1],
+        row_stride=drivable_area.shape[1],
+        cell_stride=1,
+        fields=[
+            PackedElementField(name="drivable_area", offset=0, type=PackedElementFieldNumericType.Uint8)
+        ],
+        pose=Pose(
+            position=Vector3(x=pos_x, y=pos_y, z=0.01),
+            orientation=foxglove_Quaternion(x=q.x, y=q.y, z=q.z, w=q.w)
+        ),
+        data=drivable_area.astype(np.uint8).tobytes()
+    )
+
+    foxglove.log("/drivable_area", msg, log_time=stamp_ns)
 
 
 def get_imu_msg(imu_data):
-    timestamp = get_utime(imu_data)
+    timestamp_ns = int(imu_data["utime"]) * 1000
 
     msg = {
         "linear_accel": {
@@ -452,11 +539,11 @@ def get_imu_msg(imu_data):
         },
     }
 
-    return (timestamp, "/imu", json.dumps(msg).encode())
+    return (timestamp_ns, "/imu", msg)
 
 
 def get_odom_msg(pose_data):
-    timestamp = get_utime(pose_data)
+    timestamp_ns = int(pose_data["utime"]) * 1000
 
     msg = {
         "accel": {
@@ -487,41 +574,59 @@ def get_odom_msg(pose_data):
         },
     }
 
-    return (timestamp, "/odom", json.dumps(msg).encode())
+    return (timestamp_ns, "/odom", msg)
 
 
 def get_basic_can_msg(name, diag_data):
     values = []
     for (key, value) in diag_data.items():
         if key != "utime":
-            values.append(KeyValue(key=key, value=str(round(value, 4))))
+            values.append({"key": key, "value": str(round(value, 4))})
 
-    msg = DiagnosticArray()
-    msg.header.stamp = get_utime(diag_data)
-    msg.status.append(DiagnosticStatus(name=name, level=0, message="OK", values=values))
+    sec, msecs = divmod(diag_data["utime"], 1_000_000)
+    nsec = msecs * 1000
 
-    return (msg.header.stamp, "/diagnostics", msg)
+    msg = {
+        "header": {
+            "stamp": {
+                "sec": int(sec),
+                "nsec": int(nsec)
+            }
+        },
+        "status": [
+            {
+                "level": 0,  # 0 matches OK
+                "name": name,
+                "message": "OK",
+                "hardware_id": "",
+                "values": values
+            }
+        ]
+    }
+
+    stamp_ns = int(diag_data["utime"]) * 1000
+    return (stamp_ns, "/diagnostics", msg)
 
 
 def get_ego_tf(ego_pose):
-    ego_tf = FrameTransform()
-    ego_tf.parent_frame_id = "map"
-    ego_tf.timestamp.FromMicroseconds(ego_pose["timestamp"])
-    ego_tf.child_frame_id = "base_link"
-    ego_tf.translation.CopyFrom(get_translation(ego_pose))
-    ego_tf.rotation.CopyFrom(get_rotation(ego_pose))
-    return ego_tf
+    return FrameTransform(
+        parent_frame_id="map",
+        child_frame_id="base_link",
+        timestamp=get_timestamp(ego_pose["timestamp"]),
+        translation=get_translation(ego_pose),
+        rotation=get_rotation(ego_pose),
+    )
 
 
 def get_sensor_tf(nusc, sensor_id, sample_data):
-    sensor_tf = FrameTransform()
-    sensor_tf.parent_frame_id = "base_link"
-    sensor_tf.timestamp.FromMicroseconds(sample_data["timestamp"])
-    sensor_tf.child_frame_id = sensor_id
     calibrated_sensor = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
-    sensor_tf.translation.CopyFrom(get_translation(calibrated_sensor))
-    sensor_tf.rotation.CopyFrom(get_rotation(calibrated_sensor))
-    return sensor_tf
+    return FrameTransform(
+        parent_frame_id="base_link",
+        child_frame_id=sensor_id,
+        timestamp=get_timestamp(sample_data["timestamp"]),
+        translation=get_translation(calibrated_sensor),
+        rotation=get_rotation(calibrated_sensor),
+    )
 
 
 def scene_bounding_box(nusc, scene, nusc_map, padding=75.0):
@@ -543,7 +648,7 @@ def scene_bounding_box(nusc, scene, nusc_map, padding=75.0):
     return box
 
 
-def get_scene_map(nusc, scene, nusc_map, image, stamp):
+def get_scene_map(nusc, scene, nusc_map, image, stamp_ns):
     x, y, w, h = scene_bounding_box(nusc, scene, nusc_map)
     img_x = int(x * 10)
     img_y = int(y * 10)
@@ -557,24 +662,25 @@ def get_scene_map(nusc, scene, nusc_map, image, stamp):
     # set alpha to 0xFF for all cells except those that are completely black
     img[img != 0x00000000] |= 0x000000FF
 
-    msg = Grid()
-    msg.timestamp.FromNanoseconds(stamp.to_nsec())
-    msg.frame_id = "map"
-    msg.cell_size.x = 0.1
-    msg.cell_size.y = 0.1
-    msg.column_count = img_w
-    msg.row_stride = img_w * 4
-    msg.cell_stride = 4
-    msg.fields.add(name="alpha", offset=0, type=PackedElementField.UINT8)
-    msg.fields.add(name="blue", offset=1, type=PackedElementField.UINT8)
-    msg.fields.add(name="green", offset=2, type=PackedElementField.UINT8)
-    msg.fields.add(name="red", offset=3, type=PackedElementField.UINT8)
-    msg.pose.position.x = x
-    msg.pose.position.y = y
-    msg.pose.orientation.w = 1
-    msg.data = img.astype("<u4").tobytes()
-
-    return msg
+    return Grid(
+        timestamp=get_timestamp_from_ns(stamp_ns),
+        frame_id="map",
+        cell_size=Vector2(x=0.1, y=0.1),
+        column_count=img_w,
+        row_stride=img_w * 4,
+        cell_stride=4,
+        fields=[
+            PackedElementField(name="alpha", offset=0, type=PackedElementFieldNumericType.Uint8),
+            PackedElementField(name="blue", offset=1, type=PackedElementFieldNumericType.Uint8),
+            PackedElementField(name="green", offset=2, type=PackedElementFieldNumericType.Uint8),
+            PackedElementField(name="red", offset=3, type=PackedElementFieldNumericType.Uint8),
+        ],
+        pose=Pose(
+            position=Vector3(x=x, y=y, z=0.0),
+            orientation=foxglove_Quaternion(x=0, y=0, z=0, w=1.0),
+        ),
+        data=img.astype("<u4").tobytes(),
+    )
 
 
 def rectContains(rect, point):
@@ -583,7 +689,7 @@ def rectContains(rect, point):
     return a <= x < a + c and b <= y < b + d
 
 
-def get_centerline_markers(nusc, scene, nusc_map, stamp):
+def get_centerline_markers(nusc, scene, nusc_map, stamp_ns):
     pose_lists = nusc_map.discretize_centerlines(1)
     bbox = scene_bounding_box(nusc, scene, nusc_map)
 
@@ -596,25 +702,31 @@ def get_centerline_markers(nusc, scene, nusc_map, stamp):
         if len(new_pose_list) > 1:
             contained_pose_lists.append(new_pose_list)
 
-    scene_update = SceneUpdate()
-    for i, pose_list in enumerate(contained_pose_lists):
-        entity = scene_update.entities.add()
-        entity.frame_id = "map"
-        entity.timestamp.FromNanoseconds(stamp.to_nsec())
-        entity.id = f"{i}"
-        entity.frame_locked = True
-        line = entity.lines.add()
-        line.type = LinePrimitive.Type.LINE_STRIP
-        line.thickness = 0.1
-        line.color.r = 51.0 / 255.0
-        line.color.g = 160.0 / 255.0
-        line.color.b = 44.0 / 255.0
-        line.color.a = 1.0
-        line.pose.orientation.w = 1.0
-        for pose in pose_list:
-            line.points.add(x=pose[0], y=pose[1], z=0)
+    timestamp = get_timestamp_from_ns(stamp_ns)
 
-    return scene_update
+    entities = []
+    for i, pose_list in enumerate(contained_pose_lists):
+        points = [Point3(x=pose[0], y=pose[1], z=0.0) for pose in pose_list]
+        line = LinePrimitive(
+            type=LinePrimitiveLineType.LineStrip,
+            thickness=0.1,
+            color=Color(r=51.0 / 255.0, g=160.0 / 255.0, b=44.0 / 255.0, a=1.0),
+            points=points,
+            pose=Pose(
+                position=Vector3(x=0, y=0, z=0),
+                orientation=foxglove_Quaternion(x=0, y=0, z=0, w=1.0),
+            )
+        )
+        entity = SceneEntity(
+            frame_id="map",
+            timestamp=timestamp,
+            id=f"{i}",
+            frame_locked=True,
+            lines=[line]
+        )
+        entities.append(entity)
+
+    return SceneUpdate(entities=entities)
 
 
 def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
@@ -626,7 +738,7 @@ def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
         if lidar_data["is_key_frame"]:
             break
 
-        dist_abs = abs(stamp_nsec - get_time(lidar_data).to_nsec())
+        dist_abs = abs(stamp_nsec - int(lidar_data["timestamp"]) * 1000)
         candidates.append((dist_abs, lidar_data))
         next_lidar_token = lidar_data["next"]
 
@@ -636,21 +748,27 @@ def find_closest_lidar(nusc, lidar_start_token, stamp_nsec):
     return min(candidates, key=lambda x: x[0])[1]
 
 
-def get_car_scene_update(stamp) -> SceneUpdate:
-    scene_update = SceneUpdate()
-    entity = scene_update.entities.add()
-    entity.frame_id = "base_link"
-    entity.timestamp.FromNanoseconds(stamp)
-    entity.id = "car"
-    entity.frame_locked = True
-    model = entity.models.add()
-    model.pose.position.x = 1
-    model.pose.orientation.w = 1
-    model.scale.x = 1
-    model.scale.y = 1
-    model.scale.z = 1
-    model.url = "https://assets.foxglove.dev/NuScenes_car_uncompressed.glb"
-    return scene_update
+def get_car_scene_update(stamp_ns) -> SceneUpdate:
+    timestamp = get_timestamp_from_ns(stamp_ns)
+
+    model = ModelPrimitive(
+        pose=Pose(
+            position=Vector3(x=1.0, y=0.0, z=0.0),
+            orientation=foxglove_Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        ),
+        scale=Vector3(x=1.0, y=1.0, z=1.0),
+        url="https://assets.foxglove.dev/NuScenes_car_uncompressed.glb"
+    )
+
+    entity = SceneEntity(
+        frame_id="base_link",
+        timestamp=timestamp,
+        id="car",
+        frame_locked=True,
+        models=[model]
+    )
+
+    return SceneUpdate(entities=[entity])
 
 
 class Collector:
@@ -723,21 +841,10 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
 
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(filepath, "wb") as fp:
-        print(f"Writing to {filepath}")
-        writer = Writer(fp, compression=CompressionType.LZ4)
-
-        imu_schema_id = writer.register_schema(name="IMU", encoding="jsonschema", data=json.dumps(IMU_JSON_SCHEMA).encode())
-        imu_channel_id = writer.register_channel(topic="/imu", message_encoding="json", schema_id=imu_schema_id)
-
-        odom_schema_id = writer.register_schema(name="Pose", encoding="jsonschema", data=json.dumps(ODOM_JSON_SCHEMA).encode())
-        odom_channel_id = writer.register_channel(topic="/odom", message_encoding="json", schema_id=odom_schema_id)
-
-        protobuf_writer = ProtobufWriter(writer)
-        rosmsg_writer = RosmsgWriter(writer)
-        writer.start(profile="", library="nuscenes2mcap")
-
-        writer.add_metadata(
+    print(f"Writing to {filepath}")
+    with foxglove.open_mcap(str(filepath), allow_overwrite=True) as writer:
+        # Add MCAP Metadata
+        writer.write_metadata(
             "scene-info",
             {
                 "description": scene["description"],
@@ -748,44 +855,67 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             },
         )
 
-        stamp = get_time(
+        # Initialize named Schemas & JSON Channels for IMU and Odom dictionaries
+        imu_schema = Schema(
+            name="IMU",
+            encoding="jsonschema",
+            data=json.dumps(IMU_JSON_SCHEMA).encode("utf-8")
+        )
+        odom_schema = Schema(
+            name="Pose",
+            encoding="jsonschema",
+            data=json.dumps(ODOM_JSON_SCHEMA).encode("utf-8")
+        )
+        diagnostic_schema = Schema(
+            name="diagnostic_msgs/DiagnosticArray",
+            encoding="jsonschema",
+            data=json.dumps(DIAGNOSTIC_ARRAY_JSON_SCHEMA).encode("utf-8")
+        )
+        imu_channel = Channel("/imu", message_encoding="json", schema=imu_schema)
+        odom_channel = Channel("/odom", message_encoding="json", schema=odom_schema)
+        diagnostic_channel = Channel("/diagnostics", message_encoding="json", schema=diagnostic_schema)
+
+        stamp_ns = int(
             nusc.get(
                 "ego_pose",
                 nusc.get("sample_data", cur_sample["data"]["LIDAR_TOP"])["ego_pose_token"],
-            )
-        )
-        map_msg = get_scene_map(nusc, scene, nusc_map, image, stamp)
-        centerlines_msg = get_centerline_markers(nusc, scene, nusc_map, stamp)
-        protobuf_writer.write_message("/map", map_msg, stamp.to_nsec())
-        protobuf_writer.write_message("/semantic_map", centerlines_msg, stamp.to_nsec())
+            )["timestamp"]
+        ) * 1000
+
+        map_msg = get_scene_map(nusc, scene, nusc_map, image, stamp_ns)
+        centerlines_msg = get_centerline_markers(nusc, scene, nusc_map, stamp_ns)
+        
+        # Log baseline map and lane markers
+        foxglove.log("/map", map_msg, log_time=stamp_ns)
+        foxglove.log("/semantic_map", centerlines_msg, log_time=stamp_ns)
 
         while cur_sample is not None:
             sample_lidar = nusc.get("sample_data", cur_sample["data"]["LIDAR_TOP"])
             ego_pose = nusc.get("ego_pose", sample_lidar["ego_pose_token"])
-            stamp = get_time(ego_pose)
+            stamp_ns = int(ego_pose["timestamp"]) * 1000
 
             # write CAN messages to /pose, /odom, and /diagnostics
             can_msg_events = []
             for i in range(len(can_parsers)):
                 (can_msgs, index, msg_func) = can_parsers[i]
-                while index < len(can_msgs) and get_utime(can_msgs[index]) < stamp:
+                while index < len(can_msgs) and (int(can_msgs[index]["utime"]) * 1000) < stamp_ns:
                     can_msg_events.append(msg_func(can_msgs[index]))
                     index += 1
                     can_parsers[i][1] = index
             can_msg_events.sort(key=lambda x: x[0])
-            for (msg_stamp, topic, msg) in can_msg_events:
+            for (msg_stamp_ns, topic, msg) in can_msg_events:
                 if topic == "/imu":
-                    writer.add_message(imu_channel_id, msg_stamp.to_nsec(), msg, msg_stamp.to_nsec())
+                    imu_channel.log(msg, log_time=msg_stamp_ns)
                 elif topic == "/odom":
-                    writer.add_message(odom_channel_id, msg_stamp.to_nsec(), msg, msg_stamp.to_nsec())
+                    odom_channel.log(msg, log_time=msg_stamp_ns)
                 else:
-                    rosmsg_writer.write_message(topic, msg, msg_stamp)
+                    diagnostic_channel.log(msg, log_time=msg_stamp_ns)
 
             # publish /tf
-            protobuf_writer.write_message("/tf", get_ego_tf(ego_pose), stamp.to_nsec())
+            foxglove.log("/tf", get_ego_tf(ego_pose), log_time=stamp_ns)
 
             # /driveable_area occupancy grid
-            write_drivable_area(protobuf_writer, nusc_map, ego_pose, stamp)
+            write_drivable_area(nusc_map, ego_pose, stamp_ns)
 
             # iterate sensors
             for (sensor_id, sample_token) in cur_sample["data"].items():
@@ -794,83 +924,102 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 topic = "/" + sensor_id
 
                 # create sensor transform
-                protobuf_writer.write_message("/tf", get_sensor_tf(nusc, sensor_id, sample_data), stamp.to_nsec())
+                foxglove.log("/tf", get_sensor_tf(nusc, sensor_id, sample_data), log_time=stamp_ns)
 
                 # write the sensor data
                 if sample_data["sensor_modality"] == "radar":
                     msg = get_radar(data_path, sample_data, sensor_id)
-                    protobuf_writer.write_message(topic, msg, stamp.to_nsec())
+                    foxglove.log(topic, msg, log_time=stamp_ns)
                 elif sample_data["sensor_modality"] == "lidar":
                     msg = get_lidar(data_path, sample_data, sensor_id)
-                    protobuf_writer.write_message(topic, msg, stamp.to_nsec())
+                    foxglove.log(topic, msg, log_time=stamp_ns)
                 elif sample_data["sensor_modality"] == "camera":
                     msg = get_camera(data_path, sample_data, sensor_id)
-                    protobuf_writer.write_message(topic + "/image_rect_compressed", msg, stamp.to_nsec())
+                    foxglove.log(topic + "/image_rect_compressed", msg, log_time=stamp_ns)
                     msg = get_camera_info(nusc, sample_data, sensor_id)
-                    protobuf_writer.write_message(topic + "/camera_info", msg, stamp.to_nsec())
+                    foxglove.log(topic + "/camera_info", msg, log_time=stamp_ns)
 
                 if sample_data["sensor_modality"] == "camera":
                     msg = get_lidar_image_annotations(nusc, sample_lidar, sample_data, sensor_id)
-                    protobuf_writer.write_message(topic + "/lidar", msg, stamp.to_nsec())
+                    foxglove.log(topic + "/lidar", msg, log_time=stamp_ns)
                     write_boxes_image_annotations(
                         nusc,
-                        protobuf_writer,
                         cur_sample["anns"],
                         sample_data,
                         sensor_id,
                         topic,
-                        stamp,
+                        stamp_ns,
                     )
 
             # publish /pose
-            pose_in_frame = PoseInFrame()
-            pose_in_frame.timestamp.FromNanoseconds(stamp.to_nsec())
-            pose_in_frame.frame_id = "base_link"
-            pose_in_frame.pose.orientation.w = 1
-            protobuf_writer.write_message("/pose", pose_in_frame, stamp.to_nsec())
+            pose_in_frame = PoseInFrame(
+                timestamp=get_timestamp_from_ns(stamp_ns),
+                frame_id="base_link",
+                pose=Pose(
+                    position=Vector3(x=0.0, y=0.0, z=0.0),
+                    orientation=foxglove_Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+                )
+            )
+            foxglove.log("/pose", pose_in_frame, log_time=stamp_ns)
 
             # publish /gps
             lat, lon = derive_latlon(location, ego_pose)
-            gps = LocationFix()
-            gps.latitude = lat
-            gps.longitude = lon
-            gps.altitude = get_translation(ego_pose).z
-            protobuf_writer.write_message("/gps", gps, stamp.to_nsec())
+            gps = LocationFix(
+                latitude=lat,
+                longitude=lon,
+                altitude=ego_pose["translation"][2],
+            )
+            foxglove.log("/gps", gps, log_time=stamp_ns)
 
             # publish /markers/annotations
-            scene_update = SceneUpdate()
+            entities = []
             for annotation_id in cur_sample["anns"]:
                 ann = nusc.get("sample_annotation", annotation_id)
                 marker_id = ann["instance_token"][:4]
                 c = np.array(nusc.explorer.get_color(ann["category_name"])) / 255.0
 
-                entity = scene_update.entities.add()
-                entity.frame_id = "map"
-                entity.timestamp.FromNanoseconds(stamp.to_nsec())
-                entity.id = marker_id
-                entity.frame_locked = True
-                metadata = entity.metadata.add()
-                metadata.key = "category"
-                metadata.value = ann["category_name"]
-                cube = entity.cubes.add()
-                cube.pose.position.x = ann["translation"][0]
-                cube.pose.position.y = ann["translation"][1]
-                cube.pose.position.z = ann["translation"][2]
-                cube.pose.orientation.w = ann["rotation"][0]
-                cube.pose.orientation.x = ann["rotation"][1]
-                cube.pose.orientation.y = ann["rotation"][2]
-                cube.pose.orientation.z = ann["rotation"][3]
-                cube.size.x = ann["size"][1]
-                cube.size.y = ann["size"][0]
-                cube.size.z = ann["size"][2]
-                cube.color.r = c[0]
-                cube.color.g = c[1]
-                cube.color.b = c[2]
-                cube.color.a = 0.5
-            protobuf_writer.write_message("/markers/annotations", scene_update, stamp.to_nsec())
+                entity = SceneEntity(
+                    frame_id="map",
+                    timestamp=get_timestamp_from_ns(stamp_ns),
+                    id=marker_id,
+                    frame_locked=True,
+                    metadata=[KeyValuePair(key="category", value=ann["category_name"])],
+                    cubes=[
+                        CubePrimitive(
+                            pose=Pose(
+                                position=Vector3(
+                                    x=ann["translation"][0],
+                                    y=ann["translation"][1],
+                                    z=ann["translation"][2],
+                                ),
+                                orientation=foxglove_Quaternion(
+                                    w=ann["rotation"][0],
+                                    x=ann["rotation"][1],
+                                    y=ann["rotation"][2],
+                                    z=ann["rotation"][3],
+                                )
+                            ),
+                            size=Vector3(
+                                x=ann["size"][1],
+                                y=ann["size"][0],
+                                z=ann["size"][2],
+                            ),
+                            color=Color(
+                                r=c[0],
+                                g=c[1],
+                                b=c[2],
+                                a=0.5,
+                            )
+                        )
+                    ]
+                )
+                entities.append(entity)
+
+            scene_update = SceneUpdate(entities=entities)
+            foxglove.log("/markers/annotations", scene_update, log_time=stamp_ns)
 
             # publish /markers/car
-            protobuf_writer.write_message("/markers/car", get_car_scene_update(stamp.to_nsec()), stamp.to_nsec())
+            foxglove.log("/markers/car", get_car_scene_update(stamp_ns), log_time=stamp_ns)
 
             # collect all sensor frames after this sample but before the next sample
             non_keyframe_sensor_msgs = []
@@ -880,25 +1029,26 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                 next_sample_token = nusc.get("sample_data", sample_token)["next"]
                 while next_sample_token != "":
                     next_sample_data = nusc.get("sample_data", next_sample_token)
-                    # if next_sample_data['is_key_frame'] or get_time(next_sample_data).to_nsec() > next_stamp.to_nsec():
-                    #     break
                     if next_sample_data["is_key_frame"]:
                         break
 
                     pbar.update(1)
                     ego_pose = nusc.get("ego_pose", next_sample_data["ego_pose_token"])
                     ego_tf = get_ego_tf(ego_pose)
-                    non_keyframe_sensor_msgs.append((ego_tf.timestamp.ToNanoseconds(), "/tf", ego_tf))
+                    
+                    # Convert FrameTransform timestamp back to nanoseconds
+                    tf_stamp_ns = int(ego_pose["timestamp"]) * 1000
+                    non_keyframe_sensor_msgs.append((tf_stamp_ns, "/tf", ego_tf))
 
                     if next_sample_data["sensor_modality"] == "radar":
                         msg = get_radar(data_path, next_sample_data, sensor_id)
-                        non_keyframe_sensor_msgs.append((msg.timestamp.ToNanoseconds(), topic, msg))
+                        non_keyframe_sensor_msgs.append((int(next_sample_data["timestamp"]) * 1000, topic, msg))
                     elif next_sample_data["sensor_modality"] == "lidar":
                         msg = get_lidar(data_path, next_sample_data, sensor_id)
-                        non_keyframe_sensor_msgs.append((msg.timestamp.ToNanoseconds(), topic, msg))
+                        non_keyframe_sensor_msgs.append((int(next_sample_data["timestamp"]) * 1000, topic, msg))
                     elif next_sample_data["sensor_modality"] == "camera":
                         msg = get_camera(data_path, next_sample_data, sensor_id)
-                        camera_stamp_nsec = msg.timestamp.ToNanoseconds()
+                        camera_stamp_nsec = int(next_sample_data["timestamp"]) * 1000
                         non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + "/image_rect_compressed", msg))
 
                         msg = get_camera_info(nusc, next_sample_data, sensor_id)
@@ -909,7 +1059,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                             msg = get_lidar_image_annotations(nusc, closest_lidar, next_sample_data, sensor_id)
                             non_keyframe_sensor_msgs.append(
                                 (
-                                    msg.points[0].timestamp.ToNanoseconds(),
+                                    camera_stamp_nsec,
                                     topic + "/lidar",
                                     msg,
                                 )
@@ -920,16 +1070,12 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             # sort and publish the non-keyframe sensor msgs
             non_keyframe_sensor_msgs.sort(key=lambda x: x[0])
             for (timestamp, topic, msg) in non_keyframe_sensor_msgs:
-                if hasattr(msg, "header"):
-                    rosmsg_writer.write_message(topic, msg, msg.header.stamp)
-                else:
-                    protobuf_writer.write_message(topic, msg, timestamp)
+                foxglove.log(topic, msg, log_time=timestamp)
 
             # move to the next sample
             cur_sample = nusc.get("sample", cur_sample["next"]) if cur_sample.get("next") != "" else None
 
         pbar.close()
-        writer.finish()
         print(f"Finished writing {filepath}")
 
 
