@@ -2,7 +2,7 @@
 name = "nuscenes2mcap"
 version = "0.1.0"
 description = "Convert nuScenes data into MCAP format"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "shapely==1.8.5.post1",
     "numpy==1.26.4",
