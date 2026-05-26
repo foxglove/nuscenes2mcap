@@ -21,15 +21,15 @@ def main():
     parser.add_argument(
         "--token",
         "-t",
-        help="data platform secret token (if not provided, FOXGLOVE_DATA_PLATFORM_TOKEN from environment is used)",
+        help="data platform secret token (if not provided, FOXGLOVE_API_KEY from environment is used)",
     )
     parser.add_argument("--host", default="api.foxglove.dev", help="custom host to direct API requests to")
     parser.add_argument("--commit", "-y", action="store_true", help="actually send the events")
     args = parser.parse_args()
     if args.token is None:
-        token = os.environ.get("FOXGLOVE_DATA_PLATFORM_TOKEN")
+        token = os.environ.get("FOXGLOVE_API_KEY")
         if token is None:
-            print("FOXGLOVE_DATA_PLATFORM_TOKEN not in environment", file=sys.stderr)
+            print("FOXGLOVE_API_KEY not in environment", file=sys.stderr)
             return 1
         args.token = token
 

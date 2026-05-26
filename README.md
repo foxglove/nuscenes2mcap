@@ -18,17 +18,17 @@ nuScenes is a large-scale dataset of autonomous driving in urban environments, p
 
 ### Uploading data and events to Foxglove Data Platform
 
-If you have a Foxglove Data Platform API key, you can use it to upload your scene data with:
+If you have a Foxglove API key, you can use it to upload your scene data with:
 ```
 docker build -t mcap_converter .
-export FOXGLOVE_DATA_PLATFORM_TOKEN=<your secret token>
-docker run -e FOXGLOVE_DATA_PLATFORM_TOKEN -v $(pwd)/output:/output \
+export FOXGLOVE_API_KEY=<your secret token>
+docker run -e FOXGLOVE_API_KEY -v $(pwd)/output:/output \
     mcap_converter python3 upload_mcap.py /output
 ```
 
 This repo also contains a script that can create synthetic events from the MCAP data.
 ```
-docker run -e FOXGLOVE_DATA_PLATFORM_TOKEN -v $(pwd)/output:/output \
+docker run -e FOXGLOVE_API_KEY -v $(pwd)/output:/output \
     mcap_converter python3 upload_events.py /output
 ```
 

@@ -2,15 +2,15 @@
 name = "nuscenes2mcap"
 version = "0.1.0"
 description = "Convert nuScenes data into MCAP format"
-requires-python = ">=3.11"
+# shapely from nuscenes-devkit dependencies did not work on newer python
+requires-python = ">=3.11, <3.12"
 dependencies = [
-    "shapely==1.8.5.post1",
     "numpy==1.26.4",
     "pyyaml==6.0.3",
     "nuscenes-devkit==1.1.11",
     "mcap==1.3.1",
     "mcap-protobuf-support==0.5.4",
-    "foxglove-data-platform==0.14.2",
+    "foxglove-client==0.19.2",
     "tqdm==4.67.3",
     "requests==2.34.2",
     "protobuf==7.35.0",

@@ -3,9 +3,8 @@ import sys
 import os
 from pathlib import Path
 
-from foxglove_data_platform.client import Client
-from mcap.mcap0.reader import make_reader
-from device_name import make_device_name
+from foxglove.client import Client
+from mcap.reader import make_reader
 
 from tqdm import tqdm
 
@@ -22,19 +21,30 @@ def main():
     parser.add_argument(
         "--token",
         "-t",
-        help="data platform secret token (if not provided, FOXGLOVE_DATA_PLATFORM_TOKEN from environment is used)",
+        help="data platform secret token (if not provided, FOXGLOVE_API_KEY from environment is used)",
     )
     parser.add_argument("--host", default="api.foxglove.dev", help="custom host to send data to")
+    parser.add_argument(
+        "--commit",
+        action="store_true",
+        help="actually perform the upload (runs as a dry-run dry run by default)",
+    )
+    parser.add_argument(
+        "--project",
+        "-p",
+        help="Foxglove Data Platform project ID (required if committing)",
+    )
     args = parser.parse_args()
+    if args.commit and args.project is None:
+        parser.error("--project/-p is required when committing uploads")
     if args.token is None:
-        token = os.environ.get("FOXGLOVE_DATA_PLATFORM_TOKEN")
+        token = os.environ.get("FOXGLOVE_API_KEY")
         if token is None:
-            print("FOXGLOVE_DATA_PLATFORM_TOKEN not in environment", file=sys.stderr)
+            print("FOXGLOVE_API_KEY not in environment", file=sys.stderr)
             return 1
         args.token = token
 
     client = Client(token=args.token, host=args.host)
-    device_ids = {resp["name"]: resp["id"] for resp in client.get_devices()}
 
     filepaths = []
     for name in args.files:
@@ -48,24 +58,26 @@ def main():
 
     for filepath in filepaths:
         filename = filepath.name
-        print(f"checking for previous imports of {filename} ...")
-        previous_uploads = client.get_imports(filename=filename)
+        file_size_mb = filepath.stat().st_size / (1024 * 1024)
+        
         with open(filepath, "rb") as f:
             reader = make_reader(f)
             scene_info = next(metadata for metadata in reader.iter_metadata() if metadata.name == "scene-info")
-            device_name = make_device_name(scene_info.metadata)
-            device_id = device_ids.get(device_name)
-            if device_id is None:
-                client.create_device(name=device_name)
-                device_id = device_ids.get(device_name)
-                device_ids[device_name] = device_id
+            device_name = scene_info.metadata["vehicle"]
 
-            f.seek(0)
-            print(f"uploading {filename} with device name {device_name} ...")
+        if not args.commit:
+            print(f"[DRY-RUN] Would upload {filename} ({file_size_mb:.2f} MB) to device: {device_name} (project ID: {args.project})")
+            continue
+
+        print(f"checking for previous imports of {filename} ...")
+        previous_uploads = client.get_recordings(path=filename, project_id=args.project)
+        with open(filepath, "rb") as f:
+            print(f"uploading {filename} with device name {device_name} into project {args.project} ...")
 
             with UploadProgressBar(unit="B", unit_scale=True) as progress_bar:
                 client.upload_data(
-                    device_id=device_id,
+                    device_name=device_name,
+                    project_id=args.project,
                     filename=filename,
                     data=f,
                     callback=progress_bar.update_to,
@@ -74,9 +86,8 @@ def main():
         if previous_uploads:
             print(f"removing {len(previous_uploads)} previously-uploaded instance(s) of {filename}")
         for upload in previous_uploads:
-            client.delete_import(
-                device_id=upload["device_id"],
-                import_id=upload["import_id"],
+            client.delete_recording(
+                recording_id=upload["id"],
             )
     return 0
 
