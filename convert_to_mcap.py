@@ -436,8 +436,7 @@ def get_lidar_image_annotations(nusc, sample_lidar, sample_data, frame_id):
 def write_boxes_image_annotations(nusc, anns, sample_data, frame_id, topic_ns, stamp_ns):
     timestamp = get_timestamp_from_ns(stamp_ns)
 
-    pts_list = []
-    outline_colors = []
+    points_anns = []
     texts_anns = []
 
     # annotation boxes
@@ -447,10 +446,18 @@ def write_boxes_image_annotations(nusc, anns, sample_data, frame_id, topic_ns, s
         c = np.array(nusc.explorer.get_color(box.name)) / 255.0
         box.render(collector, view=camera_intrinsic, normalize=True, colors=(c, c, c))
 
-        for p in collector.points:
-            pts_list.append(Point2(x=p[0], y=p[1]))
-        for col in collector.colors:
-            outline_colors.append(Color(r=col[0], g=col[1], b=col[2], a=1.0))
+        box_pts = [Point2(x=p[0], y=p[1]) for p in collector.points]
+        box_colors = [Color(r=col[0], g=col[1], b=col[2], a=1.0) for col in collector.colors]
+
+        points_ann = PointsAnnotation(
+            timestamp=timestamp,
+            type=PointsAnnotationType.LineList,
+            thickness=2.0,
+            points=box_pts,
+            outline_colors=box_colors,
+            metadata=[KeyValuePair(key="category", value=box.name)]
+        )
+        points_anns.append(points_ann)
 
         min_x = min(pt[0] for pt in collector.points) if collector.points else 0.0
         min_y = min(pt[1] for pt in collector.points) if collector.points else 0.0
@@ -466,16 +473,8 @@ def write_boxes_image_annotations(nusc, anns, sample_data, frame_id, topic_ns, s
             )
         )
 
-    points_ann = PointsAnnotation(
-        timestamp=timestamp,
-        type=PointsAnnotationType.LineList,
-        thickness=2.0,
-        points=pts_list,
-        outline_colors=outline_colors,
-    )
-
     msg = ImageAnnotations(
-        points=[points_ann],
+        points=points_anns,
         texts=texts_anns
     )
 
