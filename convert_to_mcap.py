@@ -1094,11 +1094,14 @@ def convert_all(
     nusc: NuScenes,
     nusc_can: NuScenesCanBus,
     selected_scenes,
+    start_scene=None,
 ):
     nusc.list_scenes()
     for scene in nusc.scene:
         scene_name = scene["name"]
         if selected_scenes is not None and scene_name not in selected_scenes:
+            continue
+        if start_scene is not None and scene_name < start_scene:
             continue
         mcap_name = f"nuscenes-{scene_name}.mcap"
         write_scene_to_mcap(nusc, nusc_can, scene, output_dir / mcap_name)
@@ -1128,6 +1131,10 @@ def main():
         help="path to write MCAP files into",
     )
     parser.add_argument("--scene", "-s", nargs="*", help="specific scene(s) to write")
+    parser.add_argument(
+        "--start-scene",
+        help="scene name to start conversion from (e.g. 'scene-0161')",
+    )
     parser.add_argument("--list-only", action="store_true", help="lists the scenes and exits")
 
     args = parser.parse_args()
@@ -1139,7 +1146,7 @@ def main():
         if args.list_only:
             nusc.list_scenes()
             return
-        convert_all(args.output_dir, name, nusc, nusc_can, args.scene)
+        convert_all(args.output_dir, name, nusc, nusc_can, args.scene, args.start_scene)
 
 
 if __name__ == "__main__":
