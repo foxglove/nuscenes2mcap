@@ -813,45 +813,55 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
     cur_sample = nusc.get("sample", scene["first_sample_token"])
     pbar = tqdm(total=get_num_sample_data(nusc, scene), unit="sample_data", desc=f"{scene_name} Sample Data", leave=False)
 
-    can_parsers = [
-        [nusc_can.get_messages(scene_name, "ms_imu"), 0, get_imu_msg],
-        [nusc_can.get_messages(scene_name, "pose"), 0, get_odom_msg],
-        [
-            nusc_can.get_messages(scene_name, "steeranglefeedback"),
-            0,
-            lambda x: get_basic_can_msg("Steering Angle", x),
-        ],
-        [
-            nusc_can.get_messages(scene_name, "vehicle_monitor"),
-            0,
-            lambda x: get_basic_can_msg("Vehicle Monitor", x),
-        ],
-        [
-            nusc_can.get_messages(scene_name, "zoesensors"),
-            0,
-            lambda x: get_basic_can_msg("Zoe Sensors", x),
-        ],
-        [
-            nusc_can.get_messages(scene_name, "zoe_veh_info"),
-            0,
-            lambda x: get_basic_can_msg("Zoe Vehicle Info", x),
-        ],
-    ]
+    # Check against the official nuScenes CAN bus blacklist before querying messages
+    is_can_blacklisted = any(f"scene-{str(num).zfill(4)}" == scene_name for num in nusc_can.can_blacklist)
+    if is_can_blacklisted:
+        print(f"\nWarning: {scene_name} is blacklisted. Skipping CAN-related telemetry topics (/imu, /odom, /diagnostics).")
+        can_parsers = []
+    else:
+        can_parsers = [
+            [nusc_can.get_messages(scene_name, "ms_imu"), 0, get_imu_msg],
+            [nusc_can.get_messages(scene_name, "pose"), 0, get_odom_msg],
+            [
+                nusc_can.get_messages(scene_name, "steeranglefeedback"),
+                0,
+                lambda x: get_basic_can_msg("Steering Angle", x),
+            ],
+            [
+                nusc_can.get_messages(scene_name, "vehicle_monitor"),
+                0,
+                lambda x: get_basic_can_msg("Vehicle Monitor", x),
+            ],
+            [
+                nusc_can.get_messages(scene_name, "zoesensors"),
+                0,
+                lambda x: get_basic_can_msg("Zoe Sensors", x),
+            ],
+            [
+                nusc_can.get_messages(scene_name, "zoe_veh_info"),
+                0,
+                lambda x: get_basic_can_msg("Zoe Vehicle Info", x),
+            ],
+        ]
 
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"Writing to {filepath}")
     with foxglove.open_mcap(str(filepath), allow_overwrite=True) as writer:
         # Add MCAP Metadata
+        metadata = {
+            "description": scene["description"],
+            "name": scene["name"],
+            "location": location,
+            "vehicle": log["vehicle"],
+            "date_captured": log["date_captured"],
+        }
+        if is_can_blacklisted:
+            metadata["canbus_blacklisted"] = "true"
+
         writer.write_metadata(
             "scene-info",
-            {
-                "description": scene["description"],
-                "name": scene["name"],
-                "location": location,
-                "vehicle": log["vehicle"],
-                "date_captured": log["date_captured"],
-            },
+            metadata,
         )
 
         # Initialize named Schemas & JSON Channels for IMU and Odom dictionaries
