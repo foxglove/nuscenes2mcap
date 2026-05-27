@@ -61,6 +61,9 @@ def main():
         else:
             raise RuntimeError(f"path does not exist: {name}")
 
+    # Sort filepaths by scene number (e.g. nuscenes-scene-0032.mcap) so we upload in scene order
+    filepaths.sort(key=lambda x: x.name)
+
     for filepath in filepaths:
         filename = filepath.name
         file_size_mb = filepath.stat().st_size / (1024 * 1024)
