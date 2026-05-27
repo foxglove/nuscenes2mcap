@@ -34,6 +34,11 @@ def main():
         "-p",
         help="Foxglove Data Platform project ID (required if committing)",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="overwrite any pre-existing recordings on Foxglove with matching filename (deletes the old recordings before starting the new upload)",
+    )
     args = parser.parse_args()
     if args.commit and args.project is None:
         parser.error("--project/-p is required when committing uploads")
@@ -71,6 +76,17 @@ def main():
 
         print(f"checking for previous imports of {filename} ...")
         previous_uploads = client.get_recordings(path=filename, project_id=args.project)
+        if previous_uploads:
+            if not args.overwrite:
+                print(f"Skipping upload: {filename} already exists on Foxglove. Use --overwrite to overwrite.")
+                continue
+            
+            print(f"removing {len(previous_uploads)} previously-uploaded instance(s) of {filename} before starting new upload...")
+            for upload in previous_uploads:
+                client.delete_recording(
+                    recording_id=upload["id"],
+                )
+
         with open(filepath, "rb") as f:
             print(f"uploading {filename} with device name {device_name} into project {args.project} ...")
 
@@ -82,13 +98,6 @@ def main():
                     data=f,
                     callback=progress_bar.update_to,
                 )
-
-        if previous_uploads:
-            print(f"removing {len(previous_uploads)} previously-uploaded instance(s) of {filename}")
-        for upload in previous_uploads:
-            client.delete_recording(
-                recording_id=upload["id"],
-            )
     return 0
 
 
