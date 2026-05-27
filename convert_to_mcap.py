@@ -920,32 +920,32 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             for (sensor_id, sample_token) in cur_sample["data"].items():
                 pbar.update(1)
                 sample_data = nusc.get("sample_data", sample_token)
-                topic = "/" + sensor_id
+                topic = ("/" + sensor_id).lower()
 
                 # create sensor transform
-                foxglove.log("/tf", get_sensor_tf(nusc, sensor_id, sample_data), log_time=stamp_ns)
+                foxglove.log("/tf", get_sensor_tf(nusc, sensor_id.lower(), sample_data), log_time=stamp_ns)
 
                 # write the sensor data
                 if sample_data["sensor_modality"] == "radar":
-                    msg = get_radar(data_path, sample_data, sensor_id)
+                    msg = get_radar(data_path, sample_data, sensor_id.lower())
                     foxglove.log(topic, msg, log_time=stamp_ns)
                 elif sample_data["sensor_modality"] == "lidar":
-                    msg = get_lidar(data_path, sample_data, sensor_id)
+                    msg = get_lidar(data_path, sample_data, sensor_id.lower())
                     foxglove.log(topic, msg, log_time=stamp_ns)
                 elif sample_data["sensor_modality"] == "camera":
-                    msg = get_camera(data_path, sample_data, sensor_id)
+                    msg = get_camera(data_path, sample_data, sensor_id.lower())
                     foxglove.log(topic + "/image_rect_compressed", msg, log_time=stamp_ns)
-                    msg = get_camera_info(nusc, sample_data, sensor_id)
+                    msg = get_camera_info(nusc, sample_data, sensor_id.lower())
                     foxglove.log(topic + "/camera_info", msg, log_time=stamp_ns)
 
                 if sample_data["sensor_modality"] == "camera":
-                    msg = get_lidar_image_annotations(nusc, sample_lidar, sample_data, sensor_id)
+                    msg = get_lidar_image_annotations(nusc, sample_lidar, sample_data, sensor_id.lower())
                     foxglove.log(topic + "/lidar", msg, log_time=stamp_ns)
                     write_boxes_image_annotations(
                         nusc,
                         cur_sample["anns"],
                         sample_data,
-                        sensor_id,
+                        sensor_id.lower(),
                         topic,
                         stamp_ns,
                     )
@@ -1023,7 +1023,7 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
             # collect all sensor frames after this sample but before the next sample
             non_keyframe_sensor_msgs = []
             for (sensor_id, sample_token) in cur_sample["data"].items():
-                topic = "/" + sensor_id
+                topic = ("/" + sensor_id).lower()
 
                 next_sample_token = nusc.get("sample_data", sample_token)["next"]
                 while next_sample_token != "":
@@ -1040,22 +1040,22 @@ def write_scene_to_mcap(nusc: NuScenes, nusc_can: NuScenesCanBus, scene, filepat
                     non_keyframe_sensor_msgs.append((tf_stamp_ns, "/tf", ego_tf))
 
                     if next_sample_data["sensor_modality"] == "radar":
-                        msg = get_radar(data_path, next_sample_data, sensor_id)
+                        msg = get_radar(data_path, next_sample_data, sensor_id.lower())
                         non_keyframe_sensor_msgs.append((int(next_sample_data["timestamp"]) * 1000, topic, msg))
                     elif next_sample_data["sensor_modality"] == "lidar":
-                        msg = get_lidar(data_path, next_sample_data, sensor_id)
+                        msg = get_lidar(data_path, next_sample_data, sensor_id.lower())
                         non_keyframe_sensor_msgs.append((int(next_sample_data["timestamp"]) * 1000, topic, msg))
                     elif next_sample_data["sensor_modality"] == "camera":
-                        msg = get_camera(data_path, next_sample_data, sensor_id)
+                        msg = get_camera(data_path, next_sample_data, sensor_id.lower())
                         camera_stamp_nsec = int(next_sample_data["timestamp"]) * 1000
                         non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + "/image_rect_compressed", msg))
 
-                        msg = get_camera_info(nusc, next_sample_data, sensor_id)
+                        msg = get_camera_info(nusc, next_sample_data, sensor_id.lower())
                         non_keyframe_sensor_msgs.append((camera_stamp_nsec, topic + "/camera_info", msg))
 
                         closest_lidar = find_closest_lidar(nusc, cur_sample["data"]["LIDAR_TOP"], camera_stamp_nsec)
                         if closest_lidar is not None:
-                            msg = get_lidar_image_annotations(nusc, closest_lidar, next_sample_data, sensor_id)
+                            msg = get_lidar_image_annotations(nusc, closest_lidar, next_sample_data, sensor_id.lower())
                             non_keyframe_sensor_msgs.append(
                                 (
                                     camera_stamp_nsec,
