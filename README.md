@@ -14,7 +14,7 @@ nuScenes is a large-scale dataset of autonomous driving in urban environments, p
     1. `can_bus.zip` to `data/`
     1. `nuScenes-map-expansion-v1.3.zip` to `data/maps`
     1. `v1.0-mini.tgz` to `data/`
-1. Build and run the converter container with `./convert_mini_scenes.sh`
+1. Build and run the converter container with `./convert.sh`
 
 ### Uploading data and events to Foxglove Data Platform
 
